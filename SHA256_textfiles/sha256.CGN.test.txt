@@ -1,0 +1,15 @@
+79e1c95d9feab77cd59addea078f9d9ec37eaf074b8b7ae1b314e2adb30b3bc1  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N00049_fn008010.txt
+423998c289d9a6ba6fff61b891252dd07e7c13521556188f4d0ca2e95d9d3554  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N00049_fn008030.txt
+ec517d574232178e65e9675036070d19a3bc4ec93bea1f689ad73dbe2fcf83ea  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N05019_fn006729.txt
+bf394edadbb69d203b90c400bf8f8867783df7701e7476ccbf738074eaafe2e7  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N05019_fn006735.txt
+16cb98d6de6324ded2b239c7af6dfd0889b6c000951ea12c638bf70ec0b7379d  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N05038_fn006768.txt
+cf0bb1741a80de511df554e5f52a23804d1ccf0a3603a090b8cf8ecceca439c8  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N05038_fn006769.txt
+72560a72798039519403a415a9564e0e081bc0f7b831ee9caa066b3d18a22bc6  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N05038_fn006770.txt
+61e7fd0557921f425db6e496a8426306528af08fbf8728718595bbc1d57f716b  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N05087_fn006856.txt
+1c919c888a52ac3d9327173a62aa8f7472e18d61207e3a698563f7211f2e3743  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N05087_fn006857.txt
+055eddd00b6a71ff63a27fc8504c39922f46ff2607a754242421208732634da0  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N05093_fn006869.txt
+cc16a8554fafffd23efb825eb4bbd330b8d68d1c03441d702349b7f9ae0b94ad  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N05093_fn006870.txt
+7ea9e2edbd96c275cc297479acc0813d4fac15b5d0f446ba94965f4a82d4724d  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N05093_fn006871.txt
+d5b1e3e7ed0a2deb3a4adb8b2e871e01230b2d3895d548bf9938db816188fa42  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N05144_fn006963.txt
+b8f9eefd777cf3380bab7b0ff0523242d9d8a8afc291acd77233274e7c97a8ea  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N05144_fn006967.txt
+da47b80c5cf75a187e5dcd5e2609950500759c4317c8366bda19bd8230783159  C:\Users\Nelleke Scheijen\Documents\NFI\datavoorNelleke\CGN\textcd\N05144_fn006968.txt

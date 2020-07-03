@@ -1,0 +1,13 @@
+#!/bin/bash
+
+set -e
+
+if [ -z "$1" ]; then
+    echo "Usage: $(basename $0) NAME" >&2
+    exit 1
+fi
+
+git pull
+git branch "$1"
+git checkout "$1"
+git push --set-upstream origin "$1"
