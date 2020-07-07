@@ -77,7 +77,7 @@ for k_ss in train_samples_vec:
             wordlist = list(zip(*get_frequent_words(speakers_wordlist, n_freq)))[0]
             speakers = filter_texts_size_new(speakers_wordlist, wordlist, sample_size)
             speakers = dict(list(speakers.items()))
-            X_temp, y_temp = to_vector_size(speakers, '0')
+            X_temp, y_temp = to_vector_size(speakers)
             author_uni = np.unique(y_temp)
 
             hist_fig = 'Hist_dist_ss-F' + str(n_freq) + 'ss' + str(sample_size) + 'numbsamp' + str(k_ss)
@@ -124,7 +124,7 @@ for k_ss in train_samples_vec:
 
 
                 X_shan = np.concatenate((scores_ss, scores_ds))
-                y_shan = list(map(int, (np.append(labels_ss, labels_ds, axis=0))))
+                y_shan = np.asarray(map(int, (np.append(labels_ss, labels_ds, axis=0))))
 
                 X_t_shan = np.concatenate((scores_ss_t, scores_ds_t))
                 y_t_shan = list(map(int, (np.append(labels_ss_t, labels_ds_t, axis=0))))

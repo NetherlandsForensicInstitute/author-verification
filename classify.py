@@ -2,72 +2,46 @@
 
 import collections
 import logging
+import os
 import warnings
 
 import confidence
 import lir.multiclass as lir
+from matplotlib import pyplot as plt
 import numpy as np
 import scipy.stats
 from sklearn.linear_model import LogisticRegression
 import sklearn.model_selection
+import sklearn.neighbors
+import sklearn.pipeline
+import sklearn.preprocessing
 
-from schotresten.database.db_connection import DBConnection
+import Function_file as data
 
 
 LOG = logging.getLogger(__name__)
 
 
 class DataSource:
-    def __init__(self, con, relevance_classes, ammo_types=None, invert_ammo_types=False):
-        self._con = con
-        self.relevance_classes = relevance_classes
-        self._ammo_types = ammo_types
-        self._invert_ammo_types = invert_ammo_types
-
-    def ammo_types(self, ammo_types, invert_ammo_types=False):
-        return DataSource(self._con, self.relevance_classes, ammo_types, invert_ammo_types)
+    def __init__(self, n_frequent_words, tokens_per_sample):
+        self._n_freqwords = n_frequent_words
+        self._tokens_per_sample = tokens_per_sample
 
     def get(self):
-        with self._con.cursor() as cur:
-            cur.execute('SET seed TO 0')
+        os.makedirs('cache', exist_ok=True)
+        speakers_path = 'cache/speakers_author.json'
+        if os.path.exists(speakers_path):
+            print('loading', speakers_path)
+            speakers_wordlist = data.load_data(speakers_path)
+        else:
+            speakers_wordlist = data.compile_data('SHA256_textfiles/sha256.filesnew.txt')
+            data.store_data(speakers_path, speakers_wordlist)
 
-            qclasses_sum = [ f'SUM(CASE WHEN relevance_class = %s THEN 1 ELSE 0 END) class_{c}' for c in self.relevance_classes ]
-            qclasses_select = [ f'class_{c}' for c in self.relevance_classes ]
-            qwhere = [
-                "stub.project = 'HULZEN'",
-                "stub.sample_type = 'cartridge'",
-                "NOT ammo_type = 'HULZEN_unknown'",
-            ]
+        wordlist = [ word for word, freq in data.get_frequent_words(speakers_wordlist, self._n_freqwords) ]
+        speakers = data.filter_texts_size_new(speakers_wordlist, wordlist, self._tokens_per_sample)
+        X, y = data.to_vector_size(speakers)
 
-            qargs = []
-            qargs.extend(self.relevance_classes)
-
-            if self._ammo_types is not None:
-                args_ammo_types = ','.join(['%s' for c in self._ammo_types])
-                qwhere.append(f'ammo_type {"NOT" if self._invert_ammo_types else ""} IN ({args_ammo_types})')
-                qargs.extend(self._ammo_types)
-
-            q = f'''
-                WITH hulzen_stub AS (
-                    SELECT stub.ammo_type, RANDOM() rnd,
-                        count(*) aantal_deeltjes,
-                        {','.join(qclasses_sum)}
-                    FROM stub JOIN particle ON particle.stub_id = stub.id
-                    WHERE {' AND '.join(qwhere)}
-                    GROUP BY stub.id, stub.ammo_type ORDER BY RANDOM())
-                SELECT ammo_type, {','.join(qclasses_select)}
-                FROM hulzen_stub
-                '''
-            cur.execute(q, qargs)
-            LOG.debug(cur.query.decode('utf8'))
-
-            rows = cur.fetchall()
-            ammo_types = sorted(set([row[0] for row in rows]))
-
-            X = np.array([row[1:] for row in rows])
-            y = np.array([ammo_types.index(row[0]) for row in rows])
-
-            return X, y
+        return X, y
 
 
 class ParticleCountToFraction(sklearn.base.TransformerMixin):
@@ -76,6 +50,58 @@ class ParticleCountToFraction(sklearn.base.TransformerMixin):
 
     def transform(self, X):
         return (X.T / np.sum(X, axis=1)).T
+
+
+class KdeCdfTransformer(sklearn.base.TransformerMixin):
+    def __init__(self, value_range=(None, None), resolution=1000, plot_cdf=False):
+        self._value_range = value_range
+        self._resolution = resolution
+        self._kernels = None
+        self._plot_cdf = plot_cdf
+
+    def get_range(self, feature_values):
+        lower = self._value_range[0] or np.min(feature_values)
+        upper = self._value_range[1] or np.max(feature_values)
+
+        return lower, upper
+
+    def fit(self, X):
+        assert len(X.shape) == 2
+
+        self._kernels = []
+        for i in range(X.shape[1]):
+            feature_values = X[:,i]
+            lower, upper = self.get_range(feature_values)
+
+            kernel = sklearn.neighbors.KernelDensity(kernel='gaussian', bandwidth=.1).fit(feature_values.reshape(-1, 1))
+            precomputed_values = np.arange(self._resolution+1).reshape(-1, 1) / self._resolution * (upper-lower) + lower
+            density = np.exp(kernel.score_samples(precomputed_values))
+            cumulative_density = np.cumsum(density)
+            cumulative_density = cumulative_density / cumulative_density[-1]
+            self._kernels.append(cumulative_density)
+
+            if self._plot_cdf:
+                plt.plot(precomputed_values, cumulative_density)
+
+        if self._plot_cdf:
+            plt.show()
+
+        return self
+
+    def transform(self, X):
+        assert self._kernels is not None
+        assert len(X.shape) == 2
+        assert X.shape[1] == len(self._kernels)
+
+        features = []
+        for i in range(X.shape[1]):
+            feature_values = X[:,i]
+            lower, upper = self.get_range(feature_values)
+
+            percentiles = self._kernels[i][((feature_values - lower) / (upper-lower) * self._resolution).astype(int)]
+            features.append(percentiles)
+
+        return np.stack(features, axis=1)
 
 
 class GaussianCdfTransformer(sklearn.base.TransformerMixin):
@@ -96,14 +122,28 @@ class GaussianCdfTransformer(sklearn.base.TransformerMixin):
 
 
 class InstancePairing(sklearn.base.TransformerMixin):
+    def __init__(self, same_source_limit=None, different_source_limit=None):
+        self._ss_limit = same_source_limit
+        self._ds_limit = different_source_limit
+
     def fit(self, X):
         return self
 
     def transform(self, X, y):
         pairing = np.array(np.meshgrid(np.arange(X.shape[0]), np.arange(X.shape[0]))).T.reshape(-1, 2)  # generate all possible pairs
-        pairing[pairing[:, 0] != pairing[:, 1], :]  # remove pairs with same id
+        same_source = y[pairing[:, 0]] == y[pairing[:, 1]]
+
+        rows_same = np.where((pairing[:, 0] != pairing[:, 1]) & same_source)[0]  # pairs with different id and same source
+        if self._ss_limit is not None and rows_same.size > self._ss_limit:
+            rows_same = np.random.choice(rows_same, self._ss_limit, replace=False)
+
+        rows_diff = np.where((pairing[:, 0] != pairing[:, 1]) & ~same_source)[0]  # pairs with different id and different source
+        if self._ds_limit is not None and rows_diff.size > self._ds_limit:
+            rows_diff = np.random.choice(rows_diff, self._ds_limit, replace=False)
+
+        pairing = np.concatenate([pairing[rows_same,:], pairing[rows_diff,:]])
         X = np.stack([X[pairing[:, 0]], X[pairing[:, 1]]], axis=2)  # pair instances by adding another dimension
-        y = (y[pairing[:, 0]] == y[pairing[:, 1]]).astype(int)  # apply the new labels: 1=same_source versus 0=different_source
+        y = np.concatenate([np.ones(rows_same.size), np.zeros(rows_diff.size)])  # apply the new labels: 1=same_source versus 0=different_source
 
         return X, y
 
@@ -153,7 +193,7 @@ class GaussianScorer(sklearn.base.BaseEstimator):
 
 
 class AbsDiffTransformer(sklearn.base.TransformerMixin):
-    def fit(self, X):
+    def fit(self, X, y=None):
         return self
 
     def transform(self, X):
@@ -179,21 +219,15 @@ def evaluate_specificsource(clf, ds):
     print()
 
 
-def evaluate_samesource(clf, ds):
+def evaluate_samesource(clf, ds, preprocessor):
     X, y = ds.get()
     assert X.shape[0] > 0
 
-    X = ParticleCountToFraction().fit_transform(X)  # replace particle counts by fractions
-
-    # fit and apply a cumulative density function for each feature on a background dataset
-    cdf = GaussianCdfTransformer()
-    X = cdf.fit_transform(X)
+    # apply a preprocessor
+    X = preprocessor.fit_transform(X)
 
     # pair instances: same source and different source
-    X_pairs, y_pairs = InstancePairing().transform(X, y)
-
-    # calculate the differences of the cumulative density values between instances of the same pairs
-    X_pairs = AbsDiffTransformer().transform(X_pairs)
+    X_pairs, y_pairs = InstancePairing(different_source_limit=20000).transform(X, y)
 
     # fit a classifier on the cumulative density differences of all features within pairs
     clf.fit(X_pairs, y_pairs)
@@ -201,32 +235,48 @@ def evaluate_samesource(clf, ds):
     # calculate LRs
     lrs = clf.predict_lr(X_pairs)
 
-    print('  average LR by class:', lir.metrics.by_class(lir.metrics.geometric_mean, lrs, y_pairs))
+    print(f'  counts by class: diff={y_pairs.size-np.sum(y_pairs):.0f}; same={np.sum(y_pairs):.0f}')
+    print(f'  average LR by class: {lir.metrics.by_class(lir.metrics.geometric_mean, lrs, y_pairs)}')
     print(f'  cllr: {lir.metrics.macro(lir.metrics.cllr, lrs, y_pairs)}')
     print()
 
 
-def run(conn: DBConnection):
-    ds = DataSource(conn, relevance_classes=['PbSbBa', 'PbSbBaSn', 'ZnTiGd', 'PbSb', 'PbSbSn', 'BaSb', 'BaSbSn', 'PbBa', 'Pb', 'Ba', 'Sb', 'ZnTi'])
+def run():
+    ds = DataSource(n_frequent_words=200, tokens_per_sample=750)
 
     print(f'number of classes: {np.unique(ds.get()[1]).size}')
     print(f'number of instances: {ds.get()[1].size}')
     print()
 
-    print('specific source feature based gaussian')
-    evaluate_specificsource(lir.CalibratedScorer(GaussianScorer(), lir.DummyCalibrator()), ds)
+    prep_gauss = sklearn.pipeline.Pipeline([
+            ('scaler', sklearn.preprocessing.StandardScaler()),
+            ('cdf', GaussianCdfTransformer()),  # cumulative density function for each feature
+            ('clf', None),
+        ])
 
-    print('specific source feature based gaussian; calibrated')
-    evaluate_specificsource(lir.CalibratedScorer(GaussianScorer(), lir.BalancedPriorCalibrator(lir.LogitCalibrator())), ds)
+    prep_kde = sklearn.pipeline.Pipeline([
+            ('scaler', sklearn.preprocessing.StandardScaler()),
+            ('cdf', KdeCdfTransformer()),  # cumulative density function for each feature
+            ('clf', None),
+        ])
 
-    print('same source score based gaussian')
-    evaluate_samesource(lir.CalibratedScorer(LogisticRegression(class_weight='balanced'), lir.DummyCalibrator()), ds)
+    clf = sklearn.pipeline.Pipeline([
+            ('diff', AbsDiffTransformer()),  # calculates the differences of the cumulative density values between instances of the same pairs
+            ('logit', LogisticRegression(class_weight='balanced')),
+        ])
 
-    print('same source score based gaussian; calibrated')
-    evaluate_samesource(lir.CalibratedScorer(LogisticRegression(class_weight='balanced'), lir.LogitCalibrator()), ds)
+    print('same source score based; diff')
+    evaluate_samesource(lir.CalibratedScorer(clf, lir.LogitCalibrator()), ds, ParticleCountToFraction())
+
+    print('same source score based; population diff (gauss)')
+    evaluate_samesource(lir.CalibratedScorer(clf, lir.LogitCalibrator()), ds, prep_gauss)
+
+    print('same source score based; population diff (kde)')
+    evaluate_samesource(lir.CalibratedScorer(clf, lir.LogitCalibrator()), ds, prep_kde)
 
 
 if __name__ == '__main__':
-    config = confidence.load_name('schotresten', 'local')
+    config = confidence.load_name('authorship', 'local')
     warnings.filterwarnings("error")
-    run(DBConnection(**config.database.schotresten))
+    np.random.seed(0)
+    run()
