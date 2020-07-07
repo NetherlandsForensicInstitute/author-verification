@@ -6,15 +6,17 @@ import os
 import warnings
 
 import confidence
-import lir.multiclass as lir
+import lir
 from matplotlib import pyplot as plt
 import numpy as np
+import scipy.spatial
 import scipy.stats
 from sklearn.linear_model import LogisticRegression
 import sklearn.model_selection
 import sklearn.neighbors
 import sklearn.pipeline
 import sklearn.preprocessing
+import sklearn.svm
 
 import Function_file as data
 
@@ -31,7 +33,6 @@ class DataSource:
         os.makedirs('cache', exist_ok=True)
         speakers_path = 'cache/speakers_author.json'
         if os.path.exists(speakers_path):
-            print('loading', speakers_path)
             speakers_wordlist = data.load_data(speakers_path)
         else:
             speakers_wordlist = data.compile_data('SHA256_textfiles/sha256.filesnew.txt')
@@ -138,8 +139,9 @@ class InstancePairing(sklearn.base.TransformerMixin):
             rows_same = np.random.choice(rows_same, self._ss_limit, replace=False)
 
         rows_diff = np.where((pairing[:, 0] != pairing[:, 1]) & ~same_source)[0]  # pairs with different id and different source
-        if self._ds_limit is not None and rows_diff.size > self._ds_limit:
-            rows_diff = np.random.choice(rows_diff, self._ds_limit, replace=False)
+        ds_limit = rows_diff.size if self._ds_limit is None else rows_same.size if self._ds_limit == 'balance' else self._ds_limit
+        if rows_diff.size > ds_limit:
+            rows_diff = np.random.choice(rows_diff, ds_limit, replace=False)
 
         pairing = np.concatenate([pairing[rows_same,:], pairing[rows_diff,:]])
         X = np.stack([X[pairing[:, 0]], X[pairing[:, 1]]], axis=2)  # pair instances by adding another dimension
@@ -203,6 +205,40 @@ class AbsDiffTransformer(sklearn.base.TransformerMixin):
         return np.abs(X[:,:,0] - X[:,:,1])
 
 
+class BrayDistance(sklearn.base.TransformerMixin):
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        assert len(X.shape) == 3
+        assert X.shape[2] == 2
+
+        left = X[:,:,0]
+        right = X[:,:,1]
+
+        return np.abs(right - left) / (np.abs(right + left) + 1)
+
+
+class ShanDistance(sklearn.base.TransformerMixin):
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        assert len(X.shape) == 3
+        assert X.shape[2] == 2
+
+        p = X[:,:,0]
+        q = X[:,:,1]
+        p = p / np.sum(p, axis=0)
+        q = q / np.sum(q, axis=0)
+        m = (p + q) / 2.0
+        left = scipy.spatial.distance.rel_entr(p, m)
+        right = scipy.spatial.distance.rel_entr(q, m)
+        result = np.sqrt((left + right) / 2.0)
+        assert X.shape[0:2] == result.shape
+        return result
+
+
 def evaluate_specificsource(clf, ds):
     X, y = ds.get()
     assert X.shape[0] > 0
@@ -219,25 +255,40 @@ def evaluate_specificsource(clf, ds):
     print()
 
 
+def get_pairs(X, y, authors_subset, ds_limit):
+    X_subset = X[np.isin(y, authors_subset), :]
+    y_subset = y[np.isin(y, authors_subset)]
+
+    # pair instances: same source and different source
+    return InstancePairing(different_source_limit=ds_limit).transform(X_subset, y_subset)
+
+
 def evaluate_samesource(clf, ds, preprocessor):
+    desc_pre = '; '.join(name for name, tr in preprocessor.steps)
+    desc_clf = '; '.join(name for name, tr in clf.scorer.steps)
+    print(f'same source: {desc_pre}; {desc_clf}')
+
     X, y = ds.get()
     assert X.shape[0] > 0
 
     # apply a preprocessor
     X = preprocessor.fit_transform(X)
 
-    # pair instances: same source and different source
-    X_pairs, y_pairs = InstancePairing(different_source_limit=20000).transform(X, y)
+    authors = np.unique(y)
+    authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.2, random_state=1)
+
+    X_train, y_train = get_pairs(X, y, authors_train, 'balance')
+    X_test, y_test = get_pairs(X, y, authors_test, 'balance')
 
     # fit a classifier on the cumulative density differences of all features within pairs
-    clf.fit(X_pairs, y_pairs)
+    clf.fit(X_train, y_train)
 
     # calculate LRs
-    lrs = clf.predict_lr(X_pairs)
+    lrs = clf.predict_lr(X_test)
 
-    print(f'  counts by class: diff={y_pairs.size-np.sum(y_pairs):.0f}; same={np.sum(y_pairs):.0f}')
-    print(f'  average LR by class: {lir.metrics.by_class(lir.metrics.geometric_mean, lrs, y_pairs)}')
-    print(f'  cllr: {lir.metrics.macro(lir.metrics.cllr, lrs, y_pairs)}')
+    print(f'  counts by class: diff={y_test.size-np.sum(y_test):.0f}; same={np.sum(y_test):.0f}')
+    print(f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y_test==0])))}; {np.exp(np.mean(np.log(lrs[y_test==1])))}')
+    print(f'  cllr: {lir.metrics.cllr(lrs, y_test)}')
     print()
 
 
@@ -248,31 +299,37 @@ def run():
     print(f'number of instances: {ds.get()[1].size}')
     print()
 
+    prep_simple = sklearn.pipeline.Pipeline([
+            ('scale:fraction', ParticleCountToFraction()),
+        ])
+
     prep_gauss = sklearn.pipeline.Pipeline([
             ('scaler', sklearn.preprocessing.StandardScaler()),
-            ('cdf', GaussianCdfTransformer()),  # cumulative density function for each feature
-            ('clf', None),
+            ('pop:gauss', GaussianCdfTransformer()),  # cumulative density function for each feature
         ])
 
     prep_kde = sklearn.pipeline.Pipeline([
             ('scaler', sklearn.preprocessing.StandardScaler()),
-            ('cdf', KdeCdfTransformer()),  # cumulative density function for each feature
-            ('clf', None),
+            ('pop:kde', KdeCdfTransformer()),  # cumulative density function for each feature
         ])
 
     clf = sklearn.pipeline.Pipeline([
-            ('diff', AbsDiffTransformer()),  # calculates the differences of the cumulative density values between instances of the same pairs
-            ('logit', LogisticRegression(class_weight='balanced')),
+            ('diff:abs', AbsDiffTransformer()),
+            #('shan', ShanDistance()),
+            #('bray', BrayDistance()),
+            ('clf:logit', LogisticRegression(class_weight='balanced')),
+            #('svc', sklearn.svm.SVC(probability=True)),
         ])
 
-    print('same source score based; diff')
-    evaluate_samesource(lir.CalibratedScorer(clf, lir.LogitCalibrator()), ds, ParticleCountToFraction())
+    svc = sklearn.pipeline.Pipeline([
+            ('diff:abs', AbsDiffTransformer()),
+            ('svc', sklearn.svm.SVC(probability=True)),
+        ])
 
-    print('same source score based; population diff (gauss)')
-    evaluate_samesource(lir.CalibratedScorer(clf, lir.LogitCalibrator()), ds, prep_gauss)
-
-    print('same source score based; population diff (kde)')
-    evaluate_samesource(lir.CalibratedScorer(clf, lir.LogitCalibrator()), ds, prep_kde)
+    evaluate_samesource(lir.CalibratedScorer(clf, lir.LogitCalibrator()), ds, prep_simple)
+    evaluate_samesource(lir.CalibratedScorer(clf, lir.KDECalibrator(bandwidth=.1)), ds, prep_gauss)
+    evaluate_samesource(lir.CalibratedScorer(clf, lir.KDECalibrator(bandwidth=.1)), ds, prep_kde)
+    evaluate_samesource(lir.CalibratedScorer(svc, lir.KDECalibrator(bandwidth=.1)), ds, prep_kde)
 
 
 if __name__ == '__main__':
