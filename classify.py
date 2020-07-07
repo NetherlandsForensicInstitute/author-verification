@@ -239,22 +239,6 @@ class ShanDistance(sklearn.base.TransformerMixin):
         return result
 
 
-def evaluate_specificsource(clf, ds):
-    X, y = ds.get()
-    assert X.shape[0] > 0
-
-    X = ParticleCountToFraction().fit_transform(X)  # replace particle counts by fractions
-
-    clf.fit(X, y)
-    y_predicted = clf.predict(X)
-    print(f'  best class score: {np.sum(y_predicted == y)} of {y.size}')
-
-    lrs = clf.predict_lr(X)
-    print('  macro average LR:', lir.metrics.macro(lir.metrics.geometric_mean, lrs, y))
-    print(f'  cllr: {lir.metrics.micro(lir.metrics.cllr, lrs, y)}')
-    print()
-
-
 def get_pairs(X, y, authors_subset, ds_limit):
     X_subset = X[np.isin(y, authors_subset), :]
     y_subset = y[np.isin(y, authors_subset)]
@@ -323,10 +307,10 @@ def run():
 
     svc = sklearn.pipeline.Pipeline([
             ('diff:abs', AbsDiffTransformer()),
-            ('svc', sklearn.svm.SVC(probability=True)),
+            ('clf:svc', sklearn.svm.SVC(probability=True)),
         ])
 
-    evaluate_samesource(lir.CalibratedScorer(clf, lir.LogitCalibrator()), ds, prep_simple)
+    evaluate_samesource(lir.CalibratedScorer(clf, lir.KDECalibrator(bandwidth=.1)), ds, prep_simple)
     evaluate_samesource(lir.CalibratedScorer(clf, lir.KDECalibrator(bandwidth=.1)), ds, prep_gauss)
     evaluate_samesource(lir.CalibratedScorer(clf, lir.KDECalibrator(bandwidth=.1)), ds, prep_kde)
     evaluate_samesource(lir.CalibratedScorer(svc, lir.KDECalibrator(bandwidth=.1)), ds, prep_kde)
