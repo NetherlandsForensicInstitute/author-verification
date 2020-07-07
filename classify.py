@@ -294,7 +294,7 @@ def run():
     print()
 
     prep_simple = sklearn.pipeline.Pipeline([
-            ('scale:fraction', ParticleCountToFraction()),
+            ('scale:standard', sklearn.preprocessing.StandardScaler()),
         ])
 
     prep_gauss = sklearn.pipeline.Pipeline([
@@ -323,7 +323,7 @@ def run():
     evaluate_samesource(lir.CalibratedScorer(clf, lir.KDECalibrator(bandwidth=.1)), ds, prep_simple)
     evaluate_samesource(lir.CalibratedScorer(clf, lir.KDECalibrator(bandwidth=.1)), ds, prep_gauss)
     evaluate_samesource(lir.CalibratedScorer(clf, lir.KDECalibrator(bandwidth=.1)), ds, prep_kde)
-    evaluate_samesource(lir.CalibratedScorer(svc, lir.KDECalibrator(bandwidth=.1)), ds, prep_kde)
+    #evaluate_samesource(lir.CalibratedScorer(svc, lir.KDECalibrator(bandwidth=.1)), ds, prep_kde)
 
 
 if __name__ == '__main__':
