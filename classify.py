@@ -295,6 +295,7 @@ def run():
 
     prep_simple = sklearn.pipeline.Pipeline([
             ('scale:standard', sklearn.preprocessing.StandardScaler()),
+            ('pop:none', None),
         ])
 
     prep_gauss = sklearn.pipeline.Pipeline([
