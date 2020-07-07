@@ -247,32 +247,42 @@ def get_pairs(X, y, authors_subset, ds_limit):
     return InstancePairing(different_source_limit=ds_limit).transform(X_subset, y_subset)
 
 
-def evaluate_samesource(clf, ds, preprocessor):
+def evaluate_samesource(clf, ds, preprocessor, repeats=1):
     desc_pre = '; '.join(name for name, tr in preprocessor.steps)
     desc_clf = '; '.join(name for name, tr in clf.scorer.steps)
-    print(f'same source: {desc_pre}; {desc_clf}')
+    print(f'same source: {desc_pre}; {desc_clf}; repeats={repeats}')
 
     X, y = ds.get()
     assert X.shape[0] > 0
 
-    # apply a preprocessor
-    X = preprocessor.fit_transform(X)
+    lrs = []
+    y_all = []
+    for i in range(repeats):
+        # apply a preprocessor
+        X = preprocessor.fit_transform(X)
 
-    authors = np.unique(y)
-    authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.2, random_state=1)
+        authors = np.unique(y)
+        authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.2, random_state=i)
 
-    X_train, y_train = get_pairs(X, y, authors_train, 'balance')
-    X_test, y_test = get_pairs(X, y, authors_test, 'balance')
+        X_train, y_train = get_pairs(X, y, authors_train, 'balance')
+        X_test, y_test = get_pairs(X, y, authors_test, 'balance')
 
-    # fit a classifier on the cumulative density differences of all features within pairs
-    clf.fit(X_train, y_train)
+        # fit a classifier on the cumulative density differences of all features within pairs
+        clf.fit(X_train, y_train)
 
-    # calculate LRs
-    lrs = clf.predict_lr(X_test)
+        # calculate LRs
+        lrs.append(clf.predict_lr(X_test))
+        y_all.append(y_test)
 
-    print(f'  counts by class: diff={y_test.size-np.sum(y_test):.0f}; same={np.sum(y_test):.0f}')
-    print(f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y_test==0])))}; {np.exp(np.mean(np.log(lrs[y_test==1])))}')
-    print(f'  cllr: {lir.metrics.cllr(lrs, y_test)}')
+    lrs = np.concatenate(lrs)
+    y_all = np.concatenate(y_all)
+
+    n_same = int(np.sum(y_test))
+    n_diff = int(y_test.size-np.sum(y_test))
+
+    print(f'  counts by class: diff={n_diff}; same={n_same} ({repeats}x)')
+    print(f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y_all==0])))}; {np.exp(np.mean(np.log(lrs[y_all==1])))}')
+    print(f'  cllr: {lir.metrics.cllr(lrs, y_all)}')
     print()
 
 
@@ -288,12 +298,12 @@ def run():
         ])
 
     prep_gauss = sklearn.pipeline.Pipeline([
-            ('scaler', sklearn.preprocessing.StandardScaler()),
+            ('scale:standard', sklearn.preprocessing.StandardScaler()),
             ('pop:gauss', GaussianCdfTransformer()),  # cumulative density function for each feature
         ])
 
     prep_kde = sklearn.pipeline.Pipeline([
-            ('scaler', sklearn.preprocessing.StandardScaler()),
+            ('scale:standard', sklearn.preprocessing.StandardScaler()),
             ('pop:kde', KdeCdfTransformer()),  # cumulative density function for each feature
         ])
 
