@@ -1,0 +1,9 @@
+lir
+matplotlib
+numpy
+nltk
+scipy
+seaborn
+sklearn
+tqdm
+xgboost
