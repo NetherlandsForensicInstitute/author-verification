@@ -30,8 +30,8 @@ class DataSource:
         self._tokens_per_sample = tokens_per_sample
 
     def get(self):
-        os.makedirs('cache', exist_ok=True)
-        speakers_path = 'cache/speakers_author.json'
+        os.makedirs('.cache', exist_ok=True)
+        speakers_path = '.cache/speakers_author.json'
         if os.path.exists(speakers_path):
             speakers_wordlist = data.load_data(speakers_path)
         else:
@@ -43,6 +43,21 @@ class DataSource:
         X, y = data.to_vector_size(speakers)
 
         return X, y
+
+
+class PlottingCalibrator():
+    def __init__(self, calibrator, path=None):
+        self._calibrator = calibrator
+        self._path = path
+
+    def fit(self, X, y=None, **kwargs):
+        self._calibrator.fit(X, y, **kwargs)
+        lir.plotting.plot_score_distribution_and_calibrator_fit(self._calibrator, X, y, savefig=self._path)
+
+        return self
+
+    def transform(self, X):
+        return self._calibrator.transform(X)
 
 
 class ParticleCountToFraction(sklearn.base.TransformerMixin):
@@ -134,11 +149,11 @@ class InstancePairing(sklearn.base.TransformerMixin):
         pairing = np.array(np.meshgrid(np.arange(X.shape[0]), np.arange(X.shape[0]))).T.reshape(-1, 2)  # generate all possible pairs
         same_source = y[pairing[:, 0]] == y[pairing[:, 1]]
 
-        rows_same = np.where((pairing[:, 0] != pairing[:, 1]) & same_source)[0]  # pairs with different id and same source
+        rows_same = np.where((pairing[:, 0] < pairing[:, 1]) & same_source)[0]  # pairs with different id and same source
         if self._ss_limit is not None and rows_same.size > self._ss_limit:
             rows_same = np.random.choice(rows_same, self._ss_limit, replace=False)
 
-        rows_diff = np.where((pairing[:, 0] != pairing[:, 1]) & ~same_source)[0]  # pairs with different id and different source
+        rows_diff = np.where((pairing[:, 0] < pairing[:, 1]) & ~same_source)[0]  # pairs with different id and different source
         ds_limit = rows_diff.size if self._ds_limit is None else rows_same.size if self._ds_limit == 'balance' else self._ds_limit
         if rows_diff.size > ds_limit:
             rows_diff = np.random.choice(rows_diff, ds_limit, replace=False)
@@ -239,6 +254,49 @@ class ShanDistance(sklearn.base.TransformerMixin):
         return result
 
 
+class VectorDistance(sklearn.base.TransformerMixin):
+    def __init__(self, dfunc):
+        self._dfunc = dfunc
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        assert len(X.shape) == 3
+        assert X.shape[2] == 2
+
+        distance_by_pair = []
+        for z in range(X.shape[0]):
+            dist = self._dfunc(X[z,:,0], X[z,:,1])
+            distance_by_pair.append(dist)
+
+        return np.array(distance_by_pair).reshape(-1, 1)
+
+
+class makeplots:
+    def __init__(self, path_prefix=None):
+        self.path_prefix = path_prefix
+
+    def __call__(self, lrs, y, title=''):
+        n_same = int(np.sum(y))
+        n_diff = int(y.size-np.sum(y))
+
+        print(f'  counts by class: diff={n_diff}; same={n_same}')
+        print(f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y==0])))}; {np.exp(np.mean(np.log(lrs[y==1])))}')
+        print(f'  cllr: {lir.metrics.cllr(lrs, y)}')
+        print()
+
+        tippet_path = f'{self.path_prefix}tippet.png' if self.path_prefix is not None else None
+        pav_path = f'{self.path_prefix}pav.png' if self.path_prefix is not None else None
+        ece_path = f'{self.path_prefix}ece.png' if self.path_prefix is not None else None
+
+        kw_figure = {}
+
+        lir.plotting.plot_log_lr_distributions(lrs, y, savefig=tippet_path, kind='tippett', kw_figure=kw_figure)
+        lir.plotting.plot_pav(lrs, y, savefig=pav_path, kw_figure=kw_figure)
+        lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
+
+
 def get_pairs(X, y, authors_subset, ds_limit):
     X_subset = X[np.isin(y, authors_subset), :]
     y_subset = y[np.isin(y, authors_subset)]
@@ -247,19 +305,23 @@ def get_pairs(X, y, authors_subset, ds_limit):
     return InstancePairing(different_source_limit=ds_limit).transform(X_subset, y_subset)
 
 
-def evaluate_samesource(clf, ds, preprocessor, repeats=1):
+def evaluate_samesource(clf, ds, preprocessor=None, plot=None, repeats=1):
+    if preprocessor is None:
+        preprocessor = sklearn.pipeline.Pipeline([('no preprocessing', None)])
+
     desc_pre = '; '.join(name for name, tr in preprocessor.steps)
     desc_clf = '; '.join(name for name, tr in clf.scorer.steps)
-    print(f'same source: {desc_pre}; {desc_clf}; repeats={repeats}')
+    title = f'same source: {desc_pre}; {desc_clf}; repeats={repeats}'
+    print(title)
 
     X, y = ds.get()
     assert X.shape[0] > 0
 
+    X = preprocessor.fit_transform(X)
+
     lrs = []
     y_all = []
     for i in range(repeats):
-        # apply a preprocessor
-        X = preprocessor.fit_transform(X)
 
         authors = np.unique(y)
         authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.2, random_state=i)
@@ -277,13 +339,8 @@ def evaluate_samesource(clf, ds, preprocessor, repeats=1):
     lrs = np.concatenate(lrs)
     y_all = np.concatenate(y_all)
 
-    n_same = int(np.sum(y_test))
-    n_diff = int(y_test.size-np.sum(y_test))
-
-    print(f'  counts by class: diff={n_diff}; same={n_same} ({repeats}x)')
-    print(f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y_all==0])))}; {np.exp(np.mean(np.log(lrs[y_all==1])))}')
-    print(f'  cllr: {lir.metrics.cllr(lrs, y_all)}')
-    print()
+    if plot is not None:
+        plot(lrs, y_all, title=title)
 
 
 def run():
@@ -308,12 +365,16 @@ def run():
             ('pop:kde', KdeCdfTransformer()),  # cumulative density function for each feature
         ])
 
+    dist = sklearn.pipeline.Pipeline([
+            ('dist:shan', VectorDistance(scipy.spatial.distance.jensenshannon)),
+            ('clf:logit', LogisticRegression(class_weight='balanced')),
+        ])
+
     clf = sklearn.pipeline.Pipeline([
             ('diff:abs', AbsDiffTransformer()),
             #('shan', ShanDistance()),
             #('bray', BrayDistance()),
             ('clf:logit', LogisticRegression(class_weight='balanced')),
-            #('svc', sklearn.svm.SVC(probability=True)),
         ])
 
     svc = sklearn.pipeline.Pipeline([
@@ -321,9 +382,12 @@ def run():
             ('clf:svc', sklearn.svm.SVC(probability=True)),
         ])
 
-    evaluate_samesource(lir.CalibratedScorer(clf, lir.KDECalibrator(bandwidth=.1)), ds, prep_simple)
-    evaluate_samesource(lir.CalibratedScorer(clf, lir.KDECalibrator(bandwidth=.1)), ds, prep_gauss)
-    evaluate_samesource(lir.CalibratedScorer(clf, lir.KDECalibrator(bandwidth=.1)), ds, prep_kde)
+    calibrator = PlottingCalibrator(lir.NormalizedCalibrator(lir.KDECalibrator(bandwidth=.03)))
+
+    evaluate_samesource(lir.CalibratedScorer(dist, calibrator), ds, plot=makeplots())
+    evaluate_samesource(lir.CalibratedScorer(clf, calibrator), ds, prep_simple, plot=makeplots())
+    evaluate_samesource(lir.CalibratedScorer(clf, calibrator), ds, prep_gauss, plot=makeplots())
+    evaluate_samesource(lir.CalibratedScorer(clf, calibrator), ds, prep_kde, plot=makeplots())
     #evaluate_samesource(lir.CalibratedScorer(svc, lir.KDECalibrator(bandwidth=.1)), ds, prep_kde)
 
 
