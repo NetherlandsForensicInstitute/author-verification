@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 
-import random
-
-import matplotlib.pyplot as plt
-import seaborn as sns
-from xgboost import XGBClassifier
-import pickle
-from Function_file import *
 import lir as liar
-from sklearn.svm import SVC, LinearSVC
-from sklearn.preprocessing import StandardScaler, Normalizer
+from sklearn.svm import SVC
+
+from utils import *
 
 # set parameters
 
@@ -28,7 +22,7 @@ ECE_title = 'ECE plot SVM'
 PAV_title = 'PAV plot SVM'
 Tippet_title = 'Tippett plot SVM'
 
-# algorithm
+# Parameter definition
 repeat = 100
 test_authors = 10
 train_authors = 190
@@ -38,9 +32,9 @@ plotfigure = True
 CGN = False
 train_samples = 5000
 test_samples = 1000
-picklefile = 'SVM' + 'At' + str(test_authors) + 'Atr' + str(train_authors) + 'rep' + str(repeat) + 'ss' + str(
-    sample_size_total) + 'F' + str(n_freq_total)
+picklefile = f'SVM_At_{test_authors}_Atr_{train_authors}_rep_{repeat}_ss_{sample_size_total}_F_{n_freq_total}'
 
+# Results
 LR_clf_acc_overall = []
 cllr_clf_overall = []
 LR_ACC_mean_clf = []
@@ -51,6 +45,20 @@ LR_clf_overall = []
 labels_clf_overall = []
 labels_boxplot = []
 
+# data loading
+speakers_path = {'json': 'JSON/speakers_author.json', 'txt': 'SHA256_textfiles/sha256.filesnew.txt'}
+speakers_path_CGN = {'json': 'JSON/speakers_CGN.json', 'txt': 'SHA256_textfiles/sha256.CGN.txt'}
+
+input_path = speakers_path_CGN if CGN else speakers_path
+
+if os.path.exists(input_path['json']):
+    print('loading', input_path['json'])
+    speakers_wordlist = load_data(input_path['json'])
+else:
+    speakers_wordlist = compile_data(input_path['txt'])
+    store_data(speakers_path, speakers_wordlist)
+
+# Experiments
 for i_ss in sample_size_total:
     for j_ss in n_freq_total:
 
@@ -62,28 +70,9 @@ for i_ss in sample_size_total:
 
         sample_size = i_ss
         n_freq = j_ss
-        labels_boxplot.append(('F=' + str(n_freq) + ', N=' + str(sample_size)))
+        labels_boxplot.append(f'F={n_freq}, N={sample_size}')
 
-        speakers_path = 'JSON/speakers_author.json'
-        speakers_path_CGN = 'JSON/speakers_CGN.json'
-        if os.path.exists(speakers_path):
-            print('loading', speakers_path)
-            speakers_wordlist = load_data(speakers_path)
-        else:
-            speakers_wordlist = compile_data('SHA256_textfiles/sha256.filesnew.txt')
-            store_data(speakers_path, speakers_wordlist)
-        if CGN:
-            if os.path.exists(speakers_path_CGN):
-                print('loading', speakers_path_CGN)
-                speakers_CGN = load_data(speakers_path_CGN)
-                wordlist = list(zip(*get_frequent_words(speakers_CGN, n_freq)))[0]
-            else:
-                speakers_CGN = compile_data('SHA256_textfiles/sha256.CGN.txt')
-                store_data(speakers_path_CGN, speakers_CGN)
-                wordlist = list(zip(*get_frequent_words(speakers_CGN, n_freq)))[0]
-        else:
-             wordlist = list(zip(*get_frequent_words(speakers_wordlist, n_freq)))[0]
-
+        wordlist = list(zip(*get_frequent_words(speakers_wordlist, n_freq)))[0]
         speakers = filter_texts_size_new(speakers_wordlist, wordlist, sample_size)
         speakers = dict(list(speakers.items()))
         X_temp, y_temp = to_vector_size(speakers, '0')
