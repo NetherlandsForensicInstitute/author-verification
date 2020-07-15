@@ -12,6 +12,7 @@ import re
 import string
 from collections import Counter
 
+import yaml
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
@@ -166,23 +167,27 @@ def compile_data_CGN(string):
     return speakers
 
 
-def load_data(path):
+def load_data(path, type='json'):
+    """
+    Loads data from a given path.
+    :param path (str): file path of file to load
+    :param type (str): file type to load, default is json
+    :return:
+    """
     with open(path) as f:
-        return json.loads(f.read())
+        raw_content = f.read()
+
+        if type == 'json':
+            content = json.loads(raw_content)
+        elif type =='yaml':
+            content = yaml.load(raw_content, Loader=yaml.BaseLoader)
+
+        return content
 
 
 def store_data(path, speakers):
     with open(path, 'w') as f:
         f.write(json.dumps(speakers))
-
-
-def get_frequent_words(speakers, n):
-    freq = collections.defaultdict(int)
-    for word in speakers.values():
-        for item in word:
-            freq[item] += 1
-    freq = sorted(freq.items(), key=lambda x: x[1], reverse=True)
-    return freq[:n]
 
 def get_n_most_frequent_words(texts, n):
     """
@@ -191,12 +196,10 @@ def get_n_most_frequent_words(texts, n):
     :param n:
     :return:
     """
-    # Todo: check
     frequencies = Counter()
     for text in texts:
         frequencies += Counter(text)
-    return Counter.most_common(n)
-
+    return frequencies.most_common(n)
 
 
 def get_frequent_ngrams(speakers, n):
@@ -260,10 +263,16 @@ def filter_texts_size(speakerdict, wordlist, aantal_woorden):
     return filtered
 
 
-def filter_texts_size_new(speakerdict, wordlist, aantal_woorden):
+def filter_texts_size_new(speakerdict, wordlist, word_size):
+    """
+
+    :param speakerdict:
+    :param wordlist:
+    :param word_size:
+    :return:
+    """
     filters = [
-        extract_words_new(),
-        rearrange_samples_new(aantal_woorden, wordlist),
+        rearrange_samples_new(word_size, wordlist),
         create_feature_vector(wordlist),
     ]
     filtered = {}
@@ -271,8 +280,6 @@ def filter_texts_size_new(speakerdict, wordlist, aantal_woorden):
         LOG.info('filter in subset {}'.format(label))
         for f in filters:
             texts = f(texts)
-        # if len(texts) == 0:
-        #    print(label)
         if len(texts) != 0:
             filtered[label] = texts
     return filtered

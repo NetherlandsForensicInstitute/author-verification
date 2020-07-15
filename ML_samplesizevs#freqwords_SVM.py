@@ -46,17 +46,15 @@ labels_clf_overall = []
 labels_boxplot = []
 
 # data loading
-speakers_path = {'json': 'JSON/speakers_author.json', 'txt': 'SHA256_textfiles/sha256.filesnew.txt'}
-speakers_path_CGN = {'json': 'JSON/speakers_CGN.json', 'txt': 'SHA256_textfiles/sha256.CGN.txt'}
-
-input_path = speakers_path_CGN if CGN else speakers_path
+config = load_data('config.yaml', 'yaml')
+input_path = config['speakers_path_CGN'] if CGN else config['speakers_path']
 
 if os.path.exists(input_path['json']):
     print('loading', input_path['json'])
     speakers_wordlist = load_data(input_path['json'])
 else:
     speakers_wordlist = compile_data(input_path['txt'])
-    store_data(speakers_path, speakers_wordlist)
+    store_data(input_path['json'], speakers_wordlist)
 
 # Experiments
 for i_ss in sample_size_total:
@@ -72,7 +70,7 @@ for i_ss in sample_size_total:
         n_freq = j_ss
         labels_boxplot.append(f'F={n_freq}, N={sample_size}')
 
-        wordlist = list(zip(*get_frequent_words(speakers_wordlist, n_freq)))[0]
+        wordlist = list(zip(*get_n_most_frequent_words(speakers_wordlist.values(), n_freq)))[0]
         speakers = filter_texts_size_new(speakers_wordlist, wordlist, sample_size)
         speakers = dict(list(speakers.items()))
         X_temp, y_temp = to_vector_size(speakers, '0')
