@@ -1,15 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="c2b9a81b-e9b0-4476-b660-ea71e9389fcb" name="Default Changelist" comment="">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ML_samplesizevs#freqwords_SVM.py" beforeDir="false" afterPath="$PROJECT_DIR$/ML_samplesizevs#freqwords_SVM.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/SHA256_textfiles/ALLdata.txt" beforeDir="false" afterPath="$PROJECT_DIR$/SHA256_textfiles/ALLdata.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/SHA256_textfiles/sha256.filesnew_specific.txt" beforeDir="false" afterPath="$PROJECT_DIR$/SHA256_textfiles/sha256.filesnew_specific.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/SHA256_textfiles/sha256.filesnew_specific_test.txt" beforeDir="false" afterPath="$PROJECT_DIR$/SHA256_textfiles/sha256.filesnew_specific_test.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/SHA256_textfiles/sha256_1_test.txt" beforeDir="false" afterPath="$PROJECT_DIR$/SHA256_textfiles/sha256_1_test.txt" afterDir="false" />
-    </list>
+    <list default="true" id="c2b9a81b-e9b0-4476-b660-ea71e9389fcb" name="Default Changelist" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -176,7 +168,7 @@
       <workItem from="1593777967129" duration="7678000" />
       <workItem from="1594816315793" duration="1198000" />
       <workItem from="1594929448397" duration="711000" />
-      <workItem from="1595182374958" duration="1520000" />
+      <workItem from="1595182374958" duration="1771000" />
     </task>
     <servers />
   </component>
