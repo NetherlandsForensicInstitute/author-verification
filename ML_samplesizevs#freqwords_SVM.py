@@ -64,13 +64,13 @@ for i_ss in sample_size_total:
         n_freq = j_ss
         labels_boxplot.append(('F=' + str(n_freq) + ', N=' + str(sample_size)))
 
-        speakers_path = 'JSON/speakers_author.json'
+        speakers_path = 'JSON/speakers_authorall.json'
         speakers_path_CGN = 'JSON/speakers_CGN.json'
         if os.path.exists(speakers_path):
             print('loading', speakers_path)
             speakers_wordlist = load_data(speakers_path)
         else:
-            speakers_wordlist = compile_data('SHA256_textfiles/sha256.filesnew.txt')
+            speakers_wordlist = compile_data('SHA256_textfiles/ALLdata.txt')
             store_data(speakers_path, speakers_wordlist)
         if CGN:
             if os.path.exists(speakers_path_CGN):
