@@ -72,9 +72,8 @@ for i_ss in sample_size_total:
 
         wordlist = list(zip(*get_n_most_frequent_words(speakers_wordlist.values(), n_freq)))[0]
         speakers = filter_texts_size_new(speakers_wordlist, wordlist, sample_size)
-        speakers = dict(list(speakers.items()))
-        X_temp, y_temp = to_vector_size(speakers, '0')
-        author_uni = np.unique(y_temp)
+        X_temp, y_temp = to_vector_size(speakers)
+        speakers_unique = np.unique(y_temp)
 
         hist_fig = 'Hist_SVM_ss-F' + str(n_freq) + 'ss' + str(sample_size)
         ECE_fig = 'ECE_SVM_ss-F' + str(n_freq) + 'ss' + str(sample_size)
@@ -82,58 +81,58 @@ for i_ss in sample_size_total:
         Tippet_fig = 'Tippett_SVM_ss-F' + str(n_freq) + 'ss' + str(sample_size)
 
         for step in tqdm(range(repeat)):
-            randsample = random.sample(list(author_uni), (test_authors + train_authors))
-            authors_t = np.asarray(randsample[0:test_authors])
-            authors_tr = np.asarray(randsample[test_authors:(test_authors + train_authors)])
+            np.random.shuffle(speakers_unique)
+            speakers_train = speakers_unique[test_authors:]
+            speakers_test = speakers_unique[0:test_authors]
 
-            X_t = []
-            y_t = []
-            X = []
-            y = []
+            X_train = []
+            y_train = []
+            X_test = []
+            y_test = []
 
-            for i in authors_t:
-                X_t.append(np.array(X_temp[y_temp == i]))
-                y_t.extend(y_temp[y_temp == i])
-            X_t = np.concatenate(X_t)
-            y_t = np.ravel(np.array(y_t))
+            for i in speakers_train:
+                X_train.append(np.array(X_temp[y_temp == i]))
+                y_train.extend(y_temp[y_temp == i])
+            X_train = np.concatenate(X_train)
+            y_train = np.ravel(np.array(y_train))
 
-            for i in authors_tr:
-                X.append(np.array(X_temp[y_temp == i]))
-                y.extend(y_temp[y_temp == i])
-            X = np.concatenate(X)
-            y = np.ravel(np.array(y))
+            for i in speakers_test:
+                X_test.append(np.array(X_temp[y_temp == i]))
+                y_test.extend(y_temp[y_temp == i])
+            X_test = np.concatenate(X_test)
+            y_test = np.ravel(np.array(y_test))
 
-            labels_ss, features_ss = ss_feature(X, y, 'shan', train_samples)
-            labels_ds, features_ds = ds_feature(X, y, 'shan', train_samples)
-            labels_ss_t, features_ss_t = ss_feature(X_t, y_t, 'shan', test_samples)
-            labels_ds_t, features_ds_t = ds_feature(X_t, y_t, 'shan', min(len(labels_ss_t), test_samples))
+            labels_ss, features_ss = ss_feature(X_train, y_train, 'shan', train_samples)
+            labels_ds, features_ds = ds_feature(X_train, y_train, 'shan', train_samples)
+            labels_ss_t, features_ss_t = ss_feature(X_test, y_test, 'shan', test_samples)
+            labels_ds_t, features_ds_t = ds_feature(X_test, y_test, 'shan', min(len(labels_ss_t), test_samples))
 
-            X = np.concatenate((features_ss, features_ds))
-            y = list(map(int, (np.append(labels_ss, labels_ds, axis=0))))
-            X = X.reshape(len(X), -1)
+            X_train = np.concatenate((features_ss, features_ds))
+            y_train = list(map(int, (np.append(labels_ss, labels_ds, axis=0))))
+            X_train = X_train.reshape(len(X_train), -1)
 
-            X_t = np.concatenate((features_ss_t, features_ds_t))
-            y_t = list(map(int, (np.append(labels_ss_t, labels_ds_t, axis=0))))
-            if len(X_t.shape) == 3:
-                X_t = X_t.reshape(len(X_t), -1)
+            X_test = np.concatenate((features_ss_t, features_ds_t))
+            y_test = list(map(int, (np.append(labels_ss_t, labels_ds_t, axis=0))))
+            if len(X_test.shape) == 3:
+                X_test = X_test.reshape(len(X_test), -1)
 
             clf = SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')
-            clf.fit(X, y)
+            clf.fit(X_train, y_train)
 
-            calibrator1 = liar.KDECalibrator()
+            calibrator = liar.KDECalibrator()
 
-            cal_clf = clf.predict_proba(X)
+            cal_clf = clf.predict_proba(X_train)
 
-            calibrator1.fit(cal_clf[:, 0], y)
+            calibrator.fit(cal_clf[:, 0], y_train)
 
-            y_proba_clf = clf.predict_proba(X_t)
+            y_proba_clf = clf.predict_proba(X_test)
 
-            LRtest_clf = calibrator1.transform(y_proba_clf[:, 0])
+            LRtest_clf = calibrator.transform(y_proba_clf[:, 0])
 
-            y_LR_clf, accur_clf = LR_acc_calc(LRtest_clf, y_t)
+            y_LR_clf, accur_clf = LR_acc_calc(LRtest_clf, y_test)
 
             # LR berekenen
-            LR_clf1, LR_clf2 = liar.util.Xy_to_Xn(LRtest_clf, y_t)
+            LR_clf1, LR_clf2 = liar.util.Xy_to_Xn(LRtest_clf, y_test)
 
             # CLLR
             cllr_clf = liar.calculate_lr_statistics(LR_clf1, LR_clf2)
@@ -141,11 +140,11 @@ for i_ss in sample_size_total:
             cllr_clf_tot.append(cllr_clf.cllr)
             LR_clf_acc_tot.append(accur_clf)
             LR_clf_tot.append(LRtest_clf)
-            labels_clf_tot.append(y_t)
+            labels_clf_tot.append(y_test)
             cllr_stat_clf.append(cllr_clf)
 
             if plotfigure and step == 0:
-                liar.plotting.plot_score_distribution_and_calibrator_fit(calibrator1, cal_clf[:, 0], y,
+                liar.plotting.plot_score_distribution_and_calibrator_fit(calibrator, cal_clf[:, 0], y_train,
                                                                          kw_figure={}, colorset=colors,
                                                                          titleplot=hist_title, savefig=hist_fig)
 

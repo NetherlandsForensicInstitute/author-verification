@@ -285,7 +285,12 @@ def filter_texts_size_new(speakerdict, wordlist, word_size):
     return filtered
 
 
-def to_vector_size(speakers, str):
+def to_vector_size(speakers):
+    """
+
+    :param speakers:
+    :return:
+    """
     labels = []
     features = []
     for label, texts in speakers.items():
@@ -306,10 +311,9 @@ def to_vector_size_CGN(speakers, str):
     return np.concatenate(features), np.ravel(np.array(labels))
 
 
-def to_vector(speakers, str):
+def to_vector(speakers):
     labels = []
     features = []
-    distinct_labels = sorted(speakers.keys())
     for label, texts in speakers.items():
         labels.extend(re.findall('[0-9]{3}', label))
         features.append(texts)
