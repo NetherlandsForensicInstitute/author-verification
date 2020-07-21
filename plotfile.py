@@ -190,19 +190,19 @@ plt.title('Accuracy XGBoost')
 plt.savefig('plot_Acc_XGB')
 plt.show()'''
 
-with open('DistshanOWNAt10Atr[190]rep100ss[250, 500, 750, 1000, 1250, 1500, 2000]F[200]', 'rb') as f:
+with open('DistshanOWNAt10Atr190rep100ss[1000]F[25, 50, 100, 200, 300, 400]S5000', 'rb') as f:
     cllr_stat, cllr_mean, LR_acc_overall, LR_ACC_mean, labels_boxplot, LR_overall, labels_overall = pickle.load(f)
 
 train_samples_vec = [10, 50, 75, 100, 200, 300, 500, 1000, 2000, 3000, 4000]
-sample_size_total = [250, 500, 750, 1000, 1250, 1500]
-n_freq_total = [25, 50, 100, 150, 200, 250, 300, 400, 600]
+sample_size_total = [750]
+n_freq_total = [25, 50, 100, 200, 300, 400]
 spec_samples_vec = [2, 4, 6, 8, 10]
 cllr_mean_std = []
 acc_mean_std = []
 cllr_overall = []
 cllr_mean_double = []
 acc_mean_double = []
-var = 6
+var = 4
 
 print('##########################################################' + str('single file'))
 for i in range(var):
@@ -232,6 +232,9 @@ for i in range(var):
     print('##########################################################' + str(i))
     cllr_mean_double.append(np.mean(cllr_mean_check))
     acc_mean_double.append(np.mean(acc))
+
+plot_tippetmulti(n_freq_total, LR_overall, labels_overall, savefig='Test multi tipper', colorset=colors, show=True, titleplot='Tippett plot')
+
 '''
 fig = plt.figure(**{})
 plt.plot(spec_samples_vec, acc_mean_double, color= colors[0], label = '$\mathregular{F_{\#}=30,N=200}$')

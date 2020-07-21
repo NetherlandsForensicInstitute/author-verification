@@ -27,6 +27,7 @@ import math as m
 from nltk.util import ngrams
 import matplotlib.pyplot as plt
 import pickle
+import lir as liar
 
 LOG = logging.getLogger(__name__)
 
@@ -136,9 +137,11 @@ def read_session(lines):
     words = []
     test = lines.read()
     test = re.sub('[0-9]*\.[0-9]*\t', '', test)
-    test = test.replace('start\tend\ttext\n', '').replace('.', '').replace('-', ' ').replace('?', '').replace('\n',
-                                                                                                              ' ').replace(
-        '*', ' ').replace('xxx', '').replace('ggg', '')
+    test = re.sub('[A-Za-z]*\*n','',test)
+    test = re.sub('[A-Za-z]*\*u','',test)
+    test = re.sub('[A-Za-z]*\*a','',test)
+    test = re.sub('[A-Za-z]*\*x','',test)
+    test = test.replace('start\tend\ttext\n', '').replace('.', '').replace('-', ' ').replace('?', '').replace('\n',' ').replace('xxx', '').replace('ggg', '').replace('vvv', '').replace('*v','').replace('*s','')
     s = test
     s = s.translate({ord(c): None for c in string.punctuation})
     all_words += len(word_tokenize(s))
@@ -590,3 +593,31 @@ def load_testdata(var, repeat, filename):
         print('Acc:' + str(np.mean(acc)))
         print('##########################################################' + str(i))
     return cllr_func, acc_func
+
+def plot_tippetmulti(parameter, LRs, labels, colorset, savefig=None, show=None, titleplot=None, kw_figure={}):
+    """
+    plots the 10log lrs tippett plt
+    """
+    plt.figure(**kw_figure)
+    for i in range(np.size(LRs)):
+        LR = LRs[i]
+        label = labels[i]
+        xplot = np.linspace(np.min(np.log10(LR)) - 0.1, np.max(np.log10(LR)) + 0.1, 100)
+        LR_0, LR_1 = liar.util.Xy_to_Xn(LR, label)
+        perc0 = (sum(i > xplot for i in np.log10(LR_0)) / len(LR_0)) * 100
+        perc1 = (sum(i > xplot for i in np.log10(LR_1)) / len(LR_1)) * 100
+        titletip= 'LRs for $F=$' + str(parameter[i])
+        plt.plot(xplot, perc1, label=titletip, color = colorset[i])
+        plt.plot(xplot, perc0, color = colorset[i])
+
+    plt.axvline(x=0, color='k', linestyle='--')
+    plt.xlabel('Log10 likelihood ratio')
+    plt.ylabel('Cumulative proportion')
+    plt.legend()
+    if titleplot is not None:
+        plt.title(titleplot)
+    if savefig is not None:
+        plt.savefig(savefig)
+        plt.close()
+    if show or savefig is None:
+        plt.show()

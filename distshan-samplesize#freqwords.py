@@ -26,11 +26,11 @@ PAV_title = 'PAV plot distance method'
 Tippet_title = 'Tippett plot distance method'
 
 # algorithms
-repeat = 10
+repeat = 100
 test_authors = 10
 train_authors = 190
-sample_size_total = [250, 500, 750, 1000, 1250, 1500]
-n_freq_total = [200]
+sample_size_total = [1000]
+n_freq_total = [25, 50, 100, 200, 300, 400]
 plotfigure = True
 CGN = False
 train_samples = 5000

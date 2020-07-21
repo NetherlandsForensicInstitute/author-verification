@@ -29,10 +29,10 @@ PAV_title = 'PAV plot SVM'
 Tippet_title = 'Tippett plot SVM'
 
 # algorithm
-repeat = 100
+repeat = 2
 test_authors = 10
 train_authors = 190
-sample_size_total = [250, 500, 750, 1000, 1250, 1500]
+sample_size_total = [1500]
 n_freq_total = [200]
 plotfigure = True
 CGN = False
@@ -64,7 +64,7 @@ for i_ss in sample_size_total:
         n_freq = j_ss
         labels_boxplot.append(('F=' + str(n_freq) + ', N=' + str(sample_size)))
 
-        speakers_path = 'JSON/speakers_authorall.json'
+        speakers_path = 'JSON/speakers_newpreproces.json'
         speakers_path_CGN = 'JSON/speakers_CGN.json'
         if os.path.exists(speakers_path):
             print('loading', speakers_path)
