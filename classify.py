@@ -74,6 +74,9 @@ class DataSource:
 
         return X, y
 
+    def __repr__(self):
+        return f'data(freqwords={self._n_freqwords}; ntokens={self._tokens_per_sample})'
+
 
 class ParticleCountToFraction(sklearn.base.TransformerMixin):
     def fit(self, X):
@@ -260,9 +263,12 @@ class ShanDistanceVector(sklearn.base.TransformerMixin):
         p = X[:,:,0]
         q = X[:,:,1]
         m = (p + q) / 2.0
+
+        # TODO: may be negative
         left = scipy.spatial.distance.rel_entr(p, m)
         right = scipy.spatial.distance.rel_entr(q, m)
         result = np.sqrt((left + right) / 2.0)
+
         assert X.shape[0:2] == result.shape
         return result
 
@@ -309,13 +315,32 @@ class makeplots:
         lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
 
 
+def get_pairs(X, y, authors_subset):
+    X_subset = X[np.isin(y, authors_subset), :]
+    y_subset = y[np.isin(y, authors_subset)]
+
+    # pair instances: same source and different source
+    return InstancePairing(different_source_limit='balance').transform(X_subset, y_subset)
+
+
+def get_batch_simple(X, y, repeats):
+    for i in range(repeats):
+        authors = np.unique(y)
+        authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
+
+        X_train, y_train = get_pairs(X, y, authors_train)
+        X_test, y_test = get_pairs(X, y, authors_test)
+
+        yield X_train, y_train, X_test, y_test
+
+
 def evaluate_samesource(ds, preprocessor, classifier, calibrator, plot=None, repeats=1):
     calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
     clf = lir.CalibratedScorer(classifier, calibrator)
 
     desc_pre = '; '.join(name for name, tr in preprocessor.steps)
     desc_clf = '; '.join(name for name, tr in clf.scorer.steps)
-    title = f'using common source model: {desc_pre}; {desc_clf}; repeats={repeats}'
+    title = f'using common source model: {desc_pre}; {desc_clf}; {ds}; repeats={repeats}'
     LOG.info(title)
 
     X, y = ds.get()
@@ -325,16 +350,11 @@ def evaluate_samesource(ds, preprocessor, classifier, calibrator, plot=None, rep
 
     lrs = []
     y_all = []
-    for i in range(repeats):
-        kfold = sklearn.model_selection.KFold(n_splits=5)
-        for train_index, test_index in kfold.split(X, y):
-            X_train, y_train = InstancePairing(different_source_limit='balance').transform(X[train_index], y[train_index])
-            X_test, y_test = InstancePairing(different_source_limit='balance').transform(X[test_index], y[test_index])
-
-            # fit a classifier and calculate LRs
-            clf.fit(X_train, y_train)
-            lrs.append(clf.predict_lr(X_test))
-            y_all.append(y_test)
+    for X_train, y_train, X_test, y_test in get_batch_simple(X, y, repeats):
+        # fit a classifier and calculate LRs
+        clf.fit(X_train, y_train)
+        lrs.append(clf.predict_lr(X_test))
+        y_all.append(y_test)
 
     lrs = np.concatenate(lrs)
     y_all = np.concatenate(y_all)
@@ -398,17 +418,16 @@ def run():
 
     calibrator = lir.NormalizedCalibrator(lir.KDECalibrator())
 
-    # TODO: wordt het aantal woorden geteld, of characters?
     ds = DataSource(n_frequent_words=50, tokens_per_sample=1000)
     LOG.info(f'number of classes: {np.unique(ds.get()[1]).size}')
     LOG.info(f'number of instances: {ds.get()[1].size}')
 
-    repeats = 5
+    repeats = 10
     evaluate_samesource(ds, prep_none, dist, calibrator, plot=makeplots('output/dist-'), repeats=repeats)
     #evaluate_samesource(ds, prep_std, logit, calibrator, plot=makeplots('output/logit-'), repeats=repeats)
     #evaluate_samesource(ds, prep_gauss, logit, calibrator, plot=makeplots('output/cdf-gauss-'), repeats=repeats)
     #evaluate_samesource(ds, prep_kde, logit, calibrator, plot=makeplots('output/cdf-kde-'), repeats=repeats)
-    evaluate_samesource(ds, prep_sum, svc, calibrator, plot=makeplots('output/svc-'), repeats=repeats)
+    evaluate_samesource(ds, prep_none, svc, calibrator, plot=makeplots('output/svc-'), repeats=repeats)
 
 
 if __name__ == '__main__':
