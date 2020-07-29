@@ -56,6 +56,14 @@ LR_clf_overall = []
 labels_clf_overall = []
 labels_boxplot = []
 
+speakers_path = 'JSON/speakers_author.json'
+if os.path.exists(speakers_path):
+    print('loading', speakers_path)
+    speakers_wordlist = load_data(speakers_path)
+else:
+    speakers_wordlist = compile_data('SHA256_textfiles/sha256.filesnew.txt')
+    store_data(speakers_path, speakers_wordlist)
+
 #start validation loop
 
 for k_ss in train_samples_vec:
@@ -73,15 +81,6 @@ for k_ss in train_samples_vec:
             train_samples = k_ss
 
             labels_boxplot.append(('F=' + str(n_freq) + ', S#=' + str(k_ss)))
-
-
-            speakers_path = 'JSON/speakers_author.json'
-            if os.path.exists(speakers_path):
-                print('loading', speakers_path)
-                speakers_wordlist = load_data(speakers_path)
-            else:
-                speakers_wordlist = compile_data('SHA256_textfiles/sha256.filesnew.txt')
-                store_data(speakers_path, speakers_wordlist)
 
 
             wordlist = list(zip(*get_frequent_words(speakers_wordlist, n_freq)))[0]
