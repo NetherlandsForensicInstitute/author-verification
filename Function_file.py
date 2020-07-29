@@ -438,7 +438,7 @@ def LR_acc_calc(LR, y_t):
 def shanjen_vector(p, q):
     p = np.asarray(p)
     q = np.asarray(q)
-    p = p / np.sum(p, axis=0)
+    p = p / np.sum(p, axis=0)  # TODO: wat gebeurt hier?
     q = q / np.sum(q, axis=0)
     m = (p + q) / 2.0
     left = distance.rel_entr(p, m)

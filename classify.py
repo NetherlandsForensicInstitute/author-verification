@@ -63,8 +63,13 @@ class DataSource:
             speakers_wordlist = data.compile_data('SHA256_textfiles/sha256.filesnew.txt')
             data.store_data(speakers_path, speakers_wordlist)
 
+        # extract a list of frequent words
         wordlist = [ word for word, freq in data.get_frequent_words(speakers_wordlist, self._n_freqwords) ]
+
+        # build a dictionary of feature vectors
         speakers = data.filter_texts_size_new(speakers_wordlist, wordlist, self._tokens_per_sample)
+
+        # convert to X, y
         X, y = data.to_vector_size(speakers)
 
         return X, y
@@ -254,8 +259,6 @@ class ShanDistanceVector(sklearn.base.TransformerMixin):
 
         p = X[:,:,0]
         q = X[:,:,1]
-        p = p / np.sum(p, axis=0)
-        q = q / np.sum(q, axis=0)
         m = (p + q) / 2.0
         left = scipy.spatial.distance.rel_entr(p, m)
         right = scipy.spatial.distance.rel_entr(q, m)
@@ -307,7 +310,7 @@ class makeplots:
 
 
 def evaluate_samesource(ds, preprocessor, classifier, calibrator, plot=None, repeats=1):
-    #calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
+    calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
     clf = lir.CalibratedScorer(classifier, calibrator)
 
     desc_pre = '; '.join(name for name, tr in preprocessor.steps)
@@ -348,13 +351,18 @@ def run():
             ('pop:none', None),
         ])
 
-    prep_standard = sklearn.pipeline.Pipeline([
+    prep_std = sklearn.pipeline.Pipeline([
             ('scale:standard', sklearn.preprocessing.StandardScaler()),
             ('pop:none', None),
         ])
 
     prep_norm = sklearn.pipeline.Pipeline([
-            ('scale:normal', sklearn.preprocessing.Normalizer()),
+            ('scale:norm', sklearn.preprocessing.Normalizer()),
+            ('pop:none', None),
+        ])
+
+    prep_sum = sklearn.pipeline.Pipeline([
+            ('scale:sum', ParticleCountToFraction()),
             ('pop:none', None),
         ])
 
@@ -384,23 +392,23 @@ def run():
         ])
 
     svc = sklearn.pipeline.Pipeline([
-            ('diff:abs', AbsDiffTransformer()),
-            ('clf:svc', sklearn.svm.SVC(probability=True)),
+            ('diff:shan', ShanDistanceVector()),  # TODO: gebeurt hier iets van scaling?
+            ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
         ])
 
     calibrator = lir.NormalizedCalibrator(lir.KDECalibrator())
 
+    # TODO: wordt het aantal woorden geteld, of characters?
     ds = DataSource(n_frequent_words=50, tokens_per_sample=1000)
     LOG.info(f'number of classes: {np.unique(ds.get()[1]).size}')
     LOG.info(f'number of instances: {ds.get()[1].size}')
 
     repeats = 5
     evaluate_samesource(ds, prep_none, dist, calibrator, plot=makeplots('output/dist-'), repeats=repeats)
-    #evaluate_samesource(ds, prep_standard, logit, calibrator, plot=makeplots('output/logit-'), repeats=repeats)
+    #evaluate_samesource(ds, prep_std, logit, calibrator, plot=makeplots('output/logit-'), repeats=repeats)
     #evaluate_samesource(ds, prep_gauss, logit, calibrator, plot=makeplots('output/cdf-gauss-'), repeats=repeats)
     #evaluate_samesource(ds, prep_kde, logit, calibrator, plot=makeplots('output/cdf-kde-'), repeats=repeats)
-    evaluate_samesource(ds, prep_standard, svc, calibrator, plot=makeplots('output/svc-std-'), repeats=repeats)
-    evaluate_samesource(ds, prep_norm, svc, calibrator, plot=makeplots('output/svc-norm-'), repeats=repeats)
+    evaluate_samesource(ds, prep_sum, svc, calibrator, plot=makeplots('output/svc-'), repeats=repeats)
 
 
 if __name__ == '__main__':
