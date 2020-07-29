@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import collections
 import logging
 import os
@@ -21,7 +22,31 @@ import sklearn.svm
 import Function_file as data
 
 
+DEFAULT_LOGLEVEL = logging.WARNING
 LOG = logging.getLogger(__name__)
+
+
+def setupLogging(args):
+    loglevel = max(logging.DEBUG, min(logging.CRITICAL, DEFAULT_LOGLEVEL + (args.q - args.v) * 10))
+
+    # setup formatter
+    log_format = '[%(asctime)-15s %(levelname)s] %(name)s: %(message)s'
+    fmt = logging.Formatter(log_format)
+
+    ch = logging.StreamHandler()
+    ch.setFormatter(fmt)
+    ch.setLevel(loglevel)
+    logging.getLogger().addHandler(ch)
+
+    # setup a file handler
+    if os.path.exists('run.log'):
+        os.rename('run.log', 'run.log.0')
+    fh = logging.FileHandler('run.log', mode='w')
+    fh.setFormatter(fmt)
+    fh.setLevel(logging.INFO)
+    logging.getLogger().addHandler(fh)
+
+    logging.getLogger('').setLevel(logging.DEBUG)
 
 
 class DataSource:
@@ -43,21 +68,6 @@ class DataSource:
         X, y = data.to_vector_size(speakers)
 
         return X, y
-
-
-class PlottingCalibrator():
-    def __init__(self, calibrator, path=None):
-        self._calibrator = calibrator
-        self._path = path
-
-    def fit(self, X, y=None, **kwargs):
-        self._calibrator.fit(X, y, **kwargs)
-        lir.plotting.plot_score_distribution_and_calibrator_fit(self._calibrator, X, y, savefig=self._path)
-
-        return self
-
-    def transform(self, X):
-        return self._calibrator.transform(X)
 
 
 class ParticleCountToFraction(sklearn.base.TransformerMixin):
@@ -234,7 +244,7 @@ class BrayDistance(sklearn.base.TransformerMixin):
         return np.abs(right - left) / (np.abs(right + left) + 1)
 
 
-class ShanDistance(sklearn.base.TransformerMixin):
+class ShanDistanceVector(sklearn.base.TransformerMixin):
     def fit(self, X, y=None):
         return self
 
@@ -281,10 +291,9 @@ class makeplots:
         n_same = int(np.sum(y))
         n_diff = int(y.size-np.sum(y))
 
-        print(f'  counts by class: diff={n_diff}; same={n_same}')
-        print(f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y==0])))}; {np.exp(np.mean(np.log(lrs[y==1])))}')
-        print(f'  cllr: {lir.metrics.cllr(lrs, y)}')
-        print()
+        LOG.info(f'  counts by class: diff={n_diff}; same={n_same}')
+        LOG.info(f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y==0])))}; {np.exp(np.mean(np.log(lrs[y==1])))}')
+        LOG.info(f'  cllr: {lir.metrics.cllr(lrs, y)}')
 
         tippet_path = f'{self.path_prefix}tippet.png' if self.path_prefix is not None else None
         pav_path = f'{self.path_prefix}pav.png' if self.path_prefix is not None else None
@@ -292,27 +301,19 @@ class makeplots:
 
         kw_figure = {}
 
-        lir.plotting.plot_log_lr_distributions(lrs, y, savefig=tippet_path, kind='tippett', kw_figure=kw_figure)
+        lir.plotting.plot_tippett(lrs, y, savefig=tippet_path, kw_figure=kw_figure)
         lir.plotting.plot_pav(lrs, y, savefig=pav_path, kw_figure=kw_figure)
         lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
 
 
-def get_pairs(X, y, authors_subset, ds_limit):
-    X_subset = X[np.isin(y, authors_subset), :]
-    y_subset = y[np.isin(y, authors_subset)]
-
-    # pair instances: same source and different source
-    return InstancePairing(different_source_limit=ds_limit).transform(X_subset, y_subset)
-
-
-def evaluate_samesource(clf, ds, preprocessor=None, plot=None, repeats=1):
-    if preprocessor is None:
-        preprocessor = sklearn.pipeline.Pipeline([('no preprocessing', None)])
+def evaluate_samesource(ds, preprocessor, classifier, calibrator, plot=None, repeats=1):
+    #calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
+    clf = lir.CalibratedScorer(classifier, calibrator)
 
     desc_pre = '; '.join(name for name, tr in preprocessor.steps)
     desc_clf = '; '.join(name for name, tr in clf.scorer.steps)
-    title = f'same source: {desc_pre}; {desc_clf}; repeats={repeats}'
-    print(title)
+    title = f'using common source model: {desc_pre}; {desc_clf}; repeats={repeats}'
+    LOG.info(title)
 
     X, y = ds.get()
     assert X.shape[0] > 0
@@ -322,19 +323,15 @@ def evaluate_samesource(clf, ds, preprocessor=None, plot=None, repeats=1):
     lrs = []
     y_all = []
     for i in range(repeats):
+        kfold = sklearn.model_selection.KFold(n_splits=5)
+        for train_index, test_index in kfold.split(X, y):
+            X_train, y_train = InstancePairing(different_source_limit='balance').transform(X[train_index], y[train_index])
+            X_test, y_test = InstancePairing(different_source_limit='balance').transform(X[test_index], y[test_index])
 
-        authors = np.unique(y)
-        authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.2, random_state=i)
-
-        X_train, y_train = get_pairs(X, y, authors_train, 'balance')
-        X_test, y_test = get_pairs(X, y, authors_test, 'balance')
-
-        # fit a classifier on the cumulative density differences of all features within pairs
-        clf.fit(X_train, y_train)
-
-        # calculate LRs
-        lrs.append(clf.predict_lr(X_test))
-        y_all.append(y_test)
+            # fit a classifier and calculate LRs
+            clf.fit(X_train, y_train)
+            lrs.append(clf.predict_lr(X_test))
+            y_all.append(y_test)
 
     lrs = np.concatenate(lrs)
     y_all = np.concatenate(y_all)
@@ -344,20 +341,27 @@ def evaluate_samesource(clf, ds, preprocessor=None, plot=None, repeats=1):
 
 
 def run():
-    ds = DataSource(n_frequent_words=200, tokens_per_sample=750)
+    ### PREPROCESSORS
 
-    print(f'number of classes: {np.unique(ds.get()[1]).size}')
-    print(f'number of instances: {ds.get()[1].size}')
-    print()
+    prep_none = sklearn.pipeline.Pipeline([
+            ('scale:none', None),
+            ('pop:none', None),
+        ])
 
-    prep_simple = sklearn.pipeline.Pipeline([
+    prep_standard = sklearn.pipeline.Pipeline([
             ('scale:standard', sklearn.preprocessing.StandardScaler()),
+            ('pop:none', None),
+        ])
+
+    prep_norm = sklearn.pipeline.Pipeline([
+            ('scale:normal', sklearn.preprocessing.Normalizer()),
             ('pop:none', None),
         ])
 
     prep_gauss = sklearn.pipeline.Pipeline([
             ('scale:standard', sklearn.preprocessing.StandardScaler()),
             ('pop:gauss', GaussianCdfTransformer()),  # cumulative density function for each feature
+            #('pop:gauss', sklearn.preprocessing.QuantileTransformer()),  # cumulative density function for each feature
         ])
 
     prep_kde = sklearn.pipeline.Pipeline([
@@ -370,7 +374,9 @@ def run():
             ('clf:logit', LogisticRegression(class_weight='balanced')),
         ])
 
-    clf = sklearn.pipeline.Pipeline([
+    ### CLASSIFIERS
+
+    logit = sklearn.pipeline.Pipeline([
             ('diff:abs', AbsDiffTransformer()),
             #('shan', ShanDistance()),
             #('bray', BrayDistance()),
@@ -382,17 +388,31 @@ def run():
             ('clf:svc', sklearn.svm.SVC(probability=True)),
         ])
 
-    calibrator = PlottingCalibrator(lir.NormalizedCalibrator(lir.KDECalibrator(bandwidth=.03)))
+    calibrator = lir.NormalizedCalibrator(lir.KDECalibrator())
 
-    evaluate_samesource(lir.CalibratedScorer(dist, calibrator), ds, plot=makeplots())
-    evaluate_samesource(lir.CalibratedScorer(clf, calibrator), ds, prep_simple, plot=makeplots())
-    evaluate_samesource(lir.CalibratedScorer(clf, calibrator), ds, prep_gauss, plot=makeplots())
-    evaluate_samesource(lir.CalibratedScorer(clf, calibrator), ds, prep_kde, plot=makeplots())
-    #evaluate_samesource(lir.CalibratedScorer(svc, lir.KDECalibrator(bandwidth=.1)), ds, prep_kde)
+    ds = DataSource(n_frequent_words=50, tokens_per_sample=1000)
+    LOG.info(f'number of classes: {np.unique(ds.get()[1]).size}')
+    LOG.info(f'number of instances: {ds.get()[1].size}')
+
+    repeats = 5
+    evaluate_samesource(ds, prep_none, dist, calibrator, plot=makeplots('output/dist-'), repeats=repeats)
+    #evaluate_samesource(ds, prep_standard, logit, calibrator, plot=makeplots('output/logit-'), repeats=repeats)
+    #evaluate_samesource(ds, prep_gauss, logit, calibrator, plot=makeplots('output/cdf-gauss-'), repeats=repeats)
+    #evaluate_samesource(ds, prep_kde, logit, calibrator, plot=makeplots('output/cdf-kde-'), repeats=repeats)
+    evaluate_samesource(ds, prep_standard, svc, calibrator, plot=makeplots('output/svc-std-'), repeats=repeats)
+    evaluate_samesource(ds, prep_norm, svc, calibrator, plot=makeplots('output/svc-norm-'), repeats=repeats)
 
 
 if __name__ == '__main__':
     config = confidence.load_name('authorship', 'local')
     warnings.filterwarnings("error")
     np.random.seed(0)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-v', help='increases verbosity', action='count', default=0)
+    parser.add_argument('-q', help='decreases verbosity', action='count', default=0)
+    args = parser.parse_args()
+
+    setupLogging(args)
+
     run()

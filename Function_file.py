@@ -76,7 +76,7 @@ class rearrange_samples():
             resampled_items = []
             for i in range(nitems):
                 resampled_items.append(allwords[int(i * itemsize):int(i * itemsize + itemsize)])
-            LOG.info('rearrange_samples: %d elements in %d items -> %d items' % (
+            LOG.debug('rearrange_samples: %d elements in %d items -> %d items' % (
                 len(allwords), len(items), len(resampled_items)))
             return resampled_items
 
@@ -209,7 +209,7 @@ def filter_texts_size(speakerdict, wordlist, aantal_woorden):
 
     filtered = {}
     for label, texts in speakerdict.items():
-        LOG.info('filter in subset {}'.format(label))
+        LOG.debug('filter in subset {}'.format(label))
         for f in filters:
             texts = f(texts)
         #if len(texts) == 0:
@@ -226,7 +226,7 @@ def filter_texts_size_new(speakerdict, wordlist, aantal_woorden):
     ]
     filtered = {}
     for label, texts in speakerdict.items():
-        LOG.info('filter in subset {}'.format(label))
+        LOG.debug('filter in subset {}'.format(label))
         for f in filters:
             texts = list(f(texts))
         #if len(texts) == 0:
