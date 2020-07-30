@@ -19,6 +19,7 @@ import sklearn.pipeline
 import sklearn.preprocessing
 import sklearn.svm
 
+import experiments
 import Function_file as data
 
 
@@ -291,6 +292,10 @@ class VectorDistance(sklearn.base.TransformerMixin):
 
         return np.array(distance_by_pair).reshape(-1, 1)
 
+    def predict_proba(self, X):
+        p0 = self.transform(X)
+        return np.stack([p0, 1/p0], axis=1)
+
 
 class makeplots:
     def __init__(self, path_prefix=None):
@@ -334,14 +339,18 @@ def get_batch_simple(X, y, repeats):
         yield X_train, y_train, X_test, y_test
 
 
-def evaluate_samesource(ds, preprocessor, classifier, calibrator, plot=None, repeats=1):
-    calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
+def evaluate_samesource(desc, n_frequent_words, tokens_per_sample, preprocessor, classifier, calibrator, plot=None, repeats=1):
+    ds = DataSource(n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
+
+    #calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
     clf = lir.CalibratedScorer(classifier, calibrator)
 
     desc_pre = '; '.join(name for name, tr in preprocessor.steps)
     desc_clf = '; '.join(name for name, tr in clf.scorer.steps)
-    title = f'using common source model: {desc_pre}; {desc_clf}; {ds}; repeats={repeats}'
+    title = f'{desc}: using common source model: {desc_pre}; {desc_clf}; {ds}; repeats={repeats}'
     LOG.info(title)
+    LOG.info(f'{desc}: number of classes: {np.unique(ds.get()[1]).size}')
+    LOG.info(f'{desc}: number of instances: {ds.get()[1].size}')
 
     X, y = ds.get()
     assert X.shape[0] > 0
@@ -362,6 +371,14 @@ def evaluate_samesource(ds, preprocessor, classifier, calibrator, plot=None, rep
     if plot is not None:
         plot(lrs, y_all, title=title)
 
+    return lir.metrics.cllr(lrs, y_all)
+
+
+def aggregate_results(results):
+    for params, result in results:
+        desc = ', '.join(f'{name}={value}' for name, value in params)
+        print(f'{desc}: cllr={result}')
+    
 
 def run():
     ### PREPROCESSORS
@@ -397,12 +414,11 @@ def run():
             ('pop:kde', KdeCdfTransformer()),  # cumulative density function for each feature
         ])
 
+    ### CLASSIFIERS
+
     dist = sklearn.pipeline.Pipeline([
             ('dist:shan', VectorDistance(scipy.spatial.distance.jensenshannon)),
-            ('clf:logit', LogisticRegression(class_weight='balanced')),
         ])
-
-    ### CLASSIFIERS
 
     logit = sklearn.pipeline.Pipeline([
             ('diff:abs', AbsDiffTransformer()),
@@ -412,22 +428,29 @@ def run():
         ])
 
     svc = sklearn.pipeline.Pipeline([
-            ('diff:shan', ShanDistanceVector()),  # TODO: gebeurt hier iets van scaling?
+            ('diff:shan', ShanDistanceVector()),
             ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
         ])
 
-    calibrator = lir.NormalizedCalibrator(lir.KDECalibrator())
+    exp = experiments.Evaluation(evaluate_samesource, aggregate_results)
 
-    ds = DataSource(n_frequent_words=50, tokens_per_sample=1000)
-    LOG.info(f'number of classes: {np.unique(ds.get()[1]).size}')
-    LOG.info(f'number of instances: {ds.get()[1].size}')
+    exp.parameter('n_frequent_words', 50)
+    exp.addSearch('n_frequent_words', [50, 100, 150], include_default=False)
 
-    repeats = 10
-    evaluate_samesource(ds, prep_none, dist, calibrator, plot=makeplots('output/dist-'), repeats=repeats)
-    #evaluate_samesource(ds, prep_std, logit, calibrator, plot=makeplots('output/logit-'), repeats=repeats)
-    #evaluate_samesource(ds, prep_gauss, logit, calibrator, plot=makeplots('output/cdf-gauss-'), repeats=repeats)
-    #evaluate_samesource(ds, prep_kde, logit, calibrator, plot=makeplots('output/cdf-kde-'), repeats=repeats)
-    evaluate_samesource(ds, prep_none, svc, calibrator, plot=makeplots('output/svc-'), repeats=repeats)
+    exp.parameter('tokens_per_sample', 1000)
+    exp.addSearch('tokens_per_sample', [500, 1000, 1500], include_default=False)
+
+    exp.parameter('preprocessor', prep_none)
+
+    exp.parameter('classifier', ('dist', dist))
+    exp.addSearch('classifier', [('svc', svc)])
+
+    exp.parameter('calibrator', lir.KDECalibrator())
+    exp.parameter('repeats', 1)
+
+    #exp.runDefaults()
+    #exp.runSearch('n_frequent_words')
+    exp.runFullGrid(['n_frequent_words', 'tokens_per_sample', 'classifier'])
 
 
 if __name__ == '__main__':
