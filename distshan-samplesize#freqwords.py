@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 
-import lir as liar
+import lir
 
 from sklearn.preprocessing import StandardScaler, Normalizer
 
@@ -28,13 +28,13 @@ Tippet_title = 'Tippett plot distance method'
 # algorithms
 repeat = 100
 test_authors = 10
-train_authors = 190
-sample_size_total = [1000]
-n_freq_total = [25, 50, 100, 200, 300, 400]
+train_authors = 187
+sample_size_total = [1400]
+n_freq_total = [50, 150, 250]
 plotfigure = True
 CGN = False
 train_samples = 5000
-test_samples = 1000
+test_samples = 500
 picklefile = 'DistshanOWN' + 'At' + str(test_authors) + 'Atr' + str(train_authors) + 'rep' + str(
     repeat) + 'ss' + str(sample_size_total) + 'F' + str(n_freq_total) + 'S' + str(train_samples)
 
@@ -46,6 +46,16 @@ cllr_stat_shan = []
 LR_shan_overall = []
 labels_shan_overall = []
 labels_boxplot = []
+
+speakers_path = 'JSON/speakers_FINAL.json'
+speakers_path_CGN = 'JSON/speakers_CGN.json'
+if os.path.exists(speakers_path):
+    print('loading', speakers_path)
+    speakers_wordlist = load_data(speakers_path)
+else:
+    speakers_wordlist = compile_data('SHA256_textfiles/FINALdata.txt')
+    store_data(speakers_path, speakers_wordlist)
+
 
 for i_ss in sample_size_total:
     for j_ss in n_freq_total:
@@ -60,32 +70,14 @@ for i_ss in sample_size_total:
         n_freq = j_ss
         labels_boxplot.append(('F=' + str(n_freq) + ', N=' + str(sample_size)))
 
-
-        speakers_path = 'JSON/speakers_author.json'
-        speakers_path_CGN = 'JSON/speakers_CGN.json'
-        if os.path.exists(speakers_path):
-            print('loading', speakers_path)
-            speakers_wordlist = load_data(speakers_path)
-        else:
-            speakers_wordlist = compile_data('SHA256_textfiles/sha256.filesnew.txt')
-            store_data(speakers_path, speakers_wordlist)
-        if CGN:
-            if os.path.exists(speakers_path_CGN):
-                print('loading', speakers_path_CGN)
-                speakers_CGN = load_data(speakers_path_CGN)
-                wordlist = list(zip(*get_frequent_words(speakers_CGN, n_freq)))[0]
-            else:
-                speakers_CGN = compile_data('SHA256_textfiles/sha256.CGN.txt')
-                store_data(speakers_path_CGN, speakers_CGN)
-                wordlist = list(zip(*get_frequent_words(speakers_CGN, n_freq)))[0]
-        else:
-             wordlist = list(zip(*get_frequent_words(speakers_wordlist, n_freq)))[0]
-
+        wordlist = list(zip(*get_frequent_words(speakers_wordlist, n_freq)))[0]
         speakers = filter_texts_size_new(speakers_wordlist, wordlist, sample_size)
         speakers = dict(list(speakers.items()))
         X_temp, y_temp = to_vector_size(speakers, '0')
         author_uni = np.unique(y_temp)
-
+        for i in author_uni:
+            if len(X_temp[y_temp == i]) < 2:
+                print(str(i) + ':    ' + str(len(X_temp[y_temp == i])))
         hist_fig = 'Hist_dist_ss-F' + str(n_freq) + 'ss' + str(sample_size) + 'numbsamp'
         ECE_fig = 'ECE_dist_ss-F' + str(n_freq) + 'ss' + str(sample_size) + 'numbsamp'
         PAV_fig = 'PAV_dist_ss-F' + str(n_freq) + 'ss' + str(sample_size) + 'numbsamp'
@@ -129,23 +121,23 @@ for i_ss in sample_size_total:
             labels_ds_t, scores_ds_t = ds_score(X_t, y_t, 'shan', n_freq, min(len(labels_ss_t), test_samples))
 
             X_shan = np.concatenate((scores_ss, scores_ds))
-            y_shan = list(map(int, (np.append(labels_ss, labels_ds, axis=0))))
+            y_shan = np.asarray(list(map(int, (np.append(labels_ss, labels_ds, axis=0)))))
 
             X_t_shan = np.concatenate((scores_ss_t, scores_ds_t))
-            y_t_shan = list(map(int, (np.append(labels_ss_t, labels_ds_t, axis=0))))
+            y_t_shan = np.asarray(list(map(int, (np.append(labels_ss_t, labels_ds_t, axis=0)))))
 
             # LR calculation
-            calibrator = liar.KDECalibrator()
+            calibrator = lir.KDECalibrator()
             calibrator.fit(X_shan, y_shan)
             LR_shan = calibrator.transform(X_t_shan)
 
             LR_test, accur = LR_acc_calc(LR_shan, y_t_shan)  # naar 0 of 1
 
             # LR berekenen per class
-            LR_sh1, LR_sh2 = liar.util.Xy_to_Xn(LR_shan, y_t_shan)
+            LR_sh1, LR_sh2 = lir.util.Xy_to_Xn(LR_shan, y_t_shan)
 
             # CLLR
-            cllr_shan = liar.calculate_lr_statistics(LR_sh1, LR_sh2)
+            cllr_shan = lir.metrics.calculate_lr_statistics(LR_sh1, LR_sh2)
 
             #print('Cllr shan', cllr_shan.cllr, '\nCllr_min shan', cllr_shan.cllr_min, '\nCllr_cal shan', cllr_shan.cllr_cal)
 
@@ -156,7 +148,7 @@ for i_ss in sample_size_total:
             cllr_stat_shan.append(cllr_shan)
 
             if plotfigure and step == 0:
-                liar.plotting.plot_score_distribution_and_calibrator_fit(calibrator, X_shan, y_shan,
+                lir.plotting.plot_score_distribution_and_calibrator_fit(calibrator, X_shan, y_shan,
                                                                          kw_figure={}, colorset=colors,
                                                                          titleplot=hist_title, savefig=hist_fig)
 
@@ -171,12 +163,12 @@ for i_ss in sample_size_total:
         labels_shan_overall.append(labels_shan_tot)
 
         # Tippett plot
-        liar.plotting.plot_tippet(LR_shan_tot, labels_shan_tot, savefig=Tippet_fig, titleplot=Tippet_title)
+        lir.plotting.plot_tippet(LR_shan_tot, labels_shan_tot, savefig=Tippet_fig, titleplot=Tippet_title)
         # PAV plot
-        liar.plotting.plot_pav(LR_shan_tot, labels_shan_tot, savefig=str(PAV_fig + 'shan'),
+        lir.plotting.plot_pav(LR_shan_tot, labels_shan_tot, savefig=str(PAV_fig + 'shan'),
                                titleplot=str(PAV_title + 'shan'))
         # ECEplot
-        liar.ece.plot(LR_shan_tot, labels_shan_tot, savefig=ECE_fig, titleplot=ECE_title)
+        lir.ece.plot(LR_shan_tot, labels_shan_tot, savefig=ECE_fig, titleplot=ECE_title)
 
 print(labels_boxplot)
 print('shan LR acc', LR_ACC_mean_shan)

@@ -8,6 +8,7 @@ from xgboost import XGBClassifier
 import pickle
 from Function_file import *
 import lir as liar
+from sklearn.metrics import roc_curve
 from sklearn.svm import SVC, LinearSVC
 from sklearn.preprocessing import StandardScaler, Normalizer
 
@@ -29,15 +30,15 @@ PAV_title = 'PAV plot SVM'
 Tippet_title = 'Tippett plot SVM'
 
 # algorithm
-repeat = 2
+repeat = 100
 test_authors = 10
-train_authors = 190
-sample_size_total = [1500]
+train_authors = 187
+sample_size_total = [1400]
 n_freq_total = [200]
 plotfigure = True
 CGN = False
 train_samples = 5000
-test_samples = 1000
+test_samples = 500
 picklefile = 'SVM' + 'At' + str(test_authors) + 'Atr' + str(train_authors) + 'rep' + str(repeat) + 'ss' + str(
     sample_size_total) + 'F' + str(n_freq_total)
 
@@ -46,16 +47,27 @@ cllr_clf_overall = []
 LR_ACC_mean_clf = []
 cllr_mean_clf = []
 cllr_stat_clf = []
+probascore_overall = []
+EERtot =[]
 
 LR_clf_overall = []
 labels_clf_overall = []
 labels_boxplot = []
+
+speakers_path = 'JSON/speakers_FINAL.json'
+if os.path.exists(speakers_path):
+    print('loading', speakers_path)
+    speakers_wordlist = load_data(speakers_path)
+else:
+    speakers_wordlist = compile_data('SHA256_textfiles/FINALdata.txt')
+    store_data(speakers_path, speakers_wordlist)
 
 for i_ss in sample_size_total:
     for j_ss in n_freq_total:
 
         cllr_clf_tot = []
         LR_clf_acc_tot = []
+        probascore_tot = []
 
         LR_clf_tot = []
         labels_clf_tot = []
@@ -64,30 +76,15 @@ for i_ss in sample_size_total:
         n_freq = j_ss
         labels_boxplot.append(('F=' + str(n_freq) + ', N=' + str(sample_size)))
 
-        speakers_path = 'JSON/speakers_newpreproces.json'
-        speakers_path_CGN = 'JSON/speakers_CGN.json'
-        if os.path.exists(speakers_path):
-            print('loading', speakers_path)
-            speakers_wordlist = load_data(speakers_path)
-        else:
-            speakers_wordlist = compile_data('SHA256_textfiles/ALLdata.txt')
-            store_data(speakers_path, speakers_wordlist)
-        if CGN:
-            if os.path.exists(speakers_path_CGN):
-                print('loading', speakers_path_CGN)
-                speakers_CGN = load_data(speakers_path_CGN)
-                wordlist = list(zip(*get_frequent_words(speakers_CGN, n_freq)))[0]
-            else:
-                speakers_CGN = compile_data('SHA256_textfiles/sha256.CGN.txt')
-                store_data(speakers_path_CGN, speakers_CGN)
-                wordlist = list(zip(*get_frequent_words(speakers_CGN, n_freq)))[0]
-        else:
-             wordlist = list(zip(*get_frequent_words(speakers_wordlist, n_freq)))[0]
+        wordlist = list(zip(*get_frequent_words(speakers_wordlist, n_freq)))[0]
 
         speakers = filter_texts_size_new(speakers_wordlist, wordlist, sample_size)
         speakers = dict(list(speakers.items()))
         X_temp, y_temp = to_vector_size(speakers, '0')
         author_uni = np.unique(y_temp)
+        for i in author_uni:
+            if len(X_temp[y_temp == i]) < 2:
+                print(str(i) + ':    ' + str(len(X_temp[y_temp == i])))
 
         hist_fig = 'Hist_SVM_ss-F' + str(n_freq) + 'ss' + str(sample_size)
         ECE_fig = 'ECE_SVM_ss-F' + str(n_freq) + 'ss' + str(sample_size)
@@ -122,11 +119,11 @@ for i_ss in sample_size_total:
             labels_ds_t, features_ds_t = ds_feature(X_t, y_t, 'shan', min(len(labels_ss_t), test_samples))
 
             X = np.concatenate((features_ss, features_ds))
-            y = list(map(int, (np.append(labels_ss, labels_ds, axis=0))))
+            y = np.asarray(list(map(int, (np.append(labels_ss, labels_ds, axis=0)))))
             X = X.reshape(len(X), -1)
 
             X_t = np.concatenate((features_ss_t, features_ds_t))
-            y_t = list(map(int, (np.append(labels_ss_t, labels_ds_t, axis=0))))
+            y_t = np.asarray(list(map(int, (np.append(labels_ss_t, labels_ds_t, axis=0)))))
             if len(X_t.shape) == 3:
                 X_t = X_t.reshape(len(X_t), -1)
 
@@ -140,6 +137,8 @@ for i_ss in sample_size_total:
             calibrator1.fit(cal_clf[:, 0], y)
 
             y_proba_clf = clf.predict_proba(X_t)
+
+            probascore_tot.append(y_proba_clf[:,0])
 
             LRtest_clf = calibrator1.transform(y_proba_clf[:, 0])
 
@@ -164,15 +163,30 @@ for i_ss in sample_size_total:
 
         cllr_clf_overall.append(cllr_clf_tot)
         LR_clf_acc_overall.append(LR_clf_acc_tot)
-
         LR_ACC_mean_clf.append(np.mean(LR_clf_acc_tot))
         cllr_mean_clf.append(np.mean(cllr_clf_tot))
+
+        probascore_tot = np.concatenate(probascore_tot)
+        probascore_overall.append(probascore_tot)
 
         LR_clf_tot = np.concatenate(LR_clf_tot)
         LR_clf_overall.append(LR_clf_tot)
 
         labels_clf_tot = np.concatenate(labels_clf_tot)
         labels_clf_overall.append(labels_clf_tot)
+
+        fpr, tpr, threshold = roc_curve(list(labels_clf_tot), list(probascore_tot), pos_label=0)
+        fnr = 1 - tpr
+        eer_threshold = threshold[np.nanargmin(np.absolute((fnr - fpr)))]
+        EER = fpr[np.nanargmin(np.absolute((fnr - fpr)))]
+        titleEER = 'EER =' + str(round((EER*100),1)) + '%'
+        plt.figure()
+        plt.plot(fpr, fnr)
+        plt.plot([0, 1], [0, 1])
+        plt.title(titleEER)
+        plt.show()
+
+        EERtot.append(EER)
 
         # Tippett plot
         liar.plotting.plot_tippet(LR_clf_tot, labels_clf_tot, savefig=Tippet_fig, titleplot=Tippet_title)
@@ -183,7 +197,11 @@ for i_ss in sample_size_total:
 
 with open(picklefile, 'wb') as f:
     pickle.dump([cllr_stat_clf, cllr_mean_clf, LR_clf_acc_overall, LR_ACC_mean_clf, labels_boxplot, LR_clf_overall,
-                 labels_clf_overall], f)
+                 labels_clf_overall, EERtot], f)
+
+
+
+
 
 print(labels_boxplot)
 print('clf LR acc', LR_ACC_mean_clf)

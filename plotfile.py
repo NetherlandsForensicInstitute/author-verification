@@ -190,19 +190,19 @@ plt.title('Accuracy XGBoost')
 plt.savefig('plot_Acc_XGB')
 plt.show()'''
 
-with open('DistshanOWNAt10Atr190rep100ss[1000]F[25, 50, 100, 200, 300, 400]S5000', 'rb') as f:
-    cllr_stat, cllr_mean, LR_acc_overall, LR_ACC_mean, labels_boxplot, LR_overall, labels_overall = pickle.load(f)
+with open('SVMAt10Atr187rep100ss[200, 400, 600, 800, 1000, 1200, 1400]F[200]', 'rb') as f:
+    cllr_stat, cllr_mean, LR_acc_overall, LR_ACC_mean, labels_boxplot, LR_overall, labels_overall, EER = pickle.load(f)
 
-train_samples_vec = [10, 50, 75, 100, 200, 300, 500, 1000, 2000, 3000, 4000]
-sample_size_total = [750]
-n_freq_total = [25, 50, 100, 200, 300, 400]
+train_samples_vec = [100, 250, 750, 1000, 2000, 3000, 5000, 6000]
+sample_size_total = [200, 400, 600, 800, 1000, 1200, 1400]
+n_freq_total = [25, 50, 100, 150, 200, 250, 300, 400, 500]
 spec_samples_vec = [2, 4, 6, 8, 10]
 cllr_mean_std = []
 acc_mean_std = []
 cllr_overall = []
 cllr_mean_double = []
 acc_mean_double = []
-var = 4
+var = 7
 
 print('##########################################################' + str('single file'))
 for i in range(var):
@@ -224,6 +224,7 @@ for i in range(var):
     #plt.show()
     cllr_overall.append(cllr_mean_check)
     print('cllr:' + str(np.mean(cllr_mean_check)))
+    print('EER:' + str(EER[i]*10))
     print('cllrmin:' + str(np.mean(cllr_mean_min)))
     print('cllrcal:' + str(np.mean(cllr_mean_cal)))
     print('cllr0:' + str(np.mean(cllr_mean_0)))
@@ -233,8 +234,10 @@ for i in range(var):
     cllr_mean_double.append(np.mean(cllr_mean_check))
     acc_mean_double.append(np.mean(acc))
 
-plot_tippetmulti(n_freq_total, LR_overall, labels_overall, savefig='Test multi tipper', colorset=colors, show=True, titleplot='Tippett plot')
+#y_LR, accurnon = LR_acc_calc(LR_overall[2], labels_overall[2])
+#stats_a = get_eer_stats(labels_overall[2], y_LR)
 
+#plot_tippetmulti([50, 200, 400], [LR_overall[0],LR_overall[4],LR_overall[7]], [labels_overall[0],labels_overall[4],labels_overall[7]], savefig='TippetF', colorset=colors, show=True, titleplot='Tippett plot', par = '$F=$')
 '''
 fig = plt.figure(**{})
 plt.plot(spec_samples_vec, acc_mean_double, color= colors[0], label = '$\mathregular{F_{\#}=30,N=200}$')
@@ -253,19 +256,19 @@ plt.legend()
 plt.title('Cllr LR score specific source')
 plt.savefig('plot_cllr_slrcom')
 plt.show()'''
+test = ['$\mathregular{F=200}$, $\mathregular{N=1400}$', 'xxx']
+#plot_boxplot_line(X=sample_size_total, Values=cllr_overall, mean=cllr_mean_double,  xaxis='Sample length (N)', legenda= 'Mean Cllr', yaxis='Cllr', boxtitle='Cllr distance', savfig='boxplot_line_cllr_ss', rotation=0, on_screen=True, color = colors )
+#plot_boxplot_line(X=sample_size_total, Values=LR_acc_overall[0:var], mean=acc_mean_double,  xaxis='Sample length (N)', legenda= 'Mean accuracy', yaxis='Accuracy', boxtitle='Accuracy distance', savfig='boxplot_line_acc_ss', rotation=0, on_screen=True, color = colors )
 
-plot_boxplot_line(X=sample_size_total, Values=cllr_overall, mean=cllr_mean_double,  xaxis='Sample length (N)', legenda= 'Mean Cllr', yaxis='Cllr', boxtitle='Cllr distance', savfig='boxplot_line_cllr_ss', rotation=0, on_screen=True, color = colors )
-plot_boxplot_line(X=sample_size_total, Values=LR_acc_overall[0:var], mean=acc_mean_double,  xaxis='Sample length (N)', legenda= 'Mean accuracy', yaxis='Accuracy', boxtitle='Accuracy distance', savfig='boxplot_line_acc_ss', rotation=0, on_screen=True, color = colors )
 
-
-#plot_boxplot_line(X=n_freq_total, Values=cllr_overall, mean=cllr_mean_double,  xaxis='Number of frequent words $\mathregular{F_{\#}}$', legenda= 'Mean Cllr', yaxis='Cllr', boxtitle='Cllr distance CGN', savfig='boxplot_line_cllr_Fcgn', rotation=0, on_screen=True, color = colors )
-#plot_boxplot_line(X=n_freq_total, Values=LR_acc_overall, mean=acc_mean_double,  xaxis='Number of frequent words $\mathregular{F_{\#}}$', legenda= 'Mean accuracy', yaxis='Accuracy', boxtitle='Accuracy distance CGN', savfig='boxplot_line_acc_Fcgn', rotation=0, on_screen=True, color = colors )
+#plot_boxplot_line(X=n_freq_total, Values=cllr_overall, mean=cllr_mean_double,  xaxis='Number of frequent words $\mathregular{F_{\#}}$', legenda= 'Mean Cllr', yaxis='Cllr', boxtitle='Cllr SVM', savfig='boxplot_line_cllr_Fcgn', rotation=0, on_screen=True, color = colors )
+#plot_boxplot_line(X=n_freq_total, Values=LR_acc_overall, mean=acc_mean_double,  xaxis='Number of frequent words $\mathregular{F_{\#}}$', legenda= 'Mean accuracy', yaxis='Accuracy', boxtitle='Accuracy SVM', savfig='boxplot_line_acc_Fcgn', rotation=0, on_screen=True, color = colors )
 
 #plot_boxplot_line(X=train_samples_vec, Values=cllr_overall, mean=cllr_mean_double,  xaxis='Number of samples $\mathregular{S_{\#}}$', legenda= 'Mean Cllr', yaxis='Cllr', boxtitle='Cllr distance', savfig='boxplot_line_cllr_S', rotation=0, on_screen=True, color = colors )
 #plot_boxplot_line(X=train_samples_vec, Values=LR_acc_overall, mean=acc_mean_double,  xaxis='Number of samples $\mathregular{S_{\#}}$', legenda= 'Mean accuracy', yaxis='Accuracy', boxtitle='Accuracy distance', savfig='boxplot_line_acc_S', rotation=0, on_screen=True, color = colors )
 
-#plot_boxplot_line(X=['$\mathregular{F_{\#}=40}$, $\mathregular{N=750}$'], Values=cllr_overall, mean=cllr_mean_double,  xaxis='Parameters', legenda= 'Mean Cllr', yaxis='Cllr', boxtitle='Cllr common source LR score', savfig='boxplot_line_cllr_bestcom', rotation=0, on_screen=True, color = colors )
-#plot_boxplot_line(X=['$\mathregular{F_{\#}=40}$, $\mathregular{N=750}$'], Values=LR_acc_overall, mean=acc_mean_double,  xaxis='Parameters', legenda= 'Mean accuracy', yaxis='Accuracy', boxtitle='Accuracy common source LR score', savfig='boxplot_line_acc_bestcom', rotation=0, on_screen=True, color = colors )
+plot_boxplot_line(X=['$\mathregular{F=200}$, $\mathregular{N=1400}$'], Values=cllr_overall[6], mean=cllr_mean_double[6],  xaxis='Parameters', legenda= 'Mean Cllr', yaxis='Cllr', boxtitle='Cllr SVM', savfig='boxplot_line_cllr_bestsvm', rotation=0, on_screen=True, color = colors )
+plot_boxplot_line(X=['$\mathregular{F=200}$, $\mathregular{N=1400}$'], Values=LR_acc_overall[6], mean=acc_mean_double,  xaxis='Parameters', legenda= 'Mean accuracy', yaxis='Accuracy', boxtitle='Accuracy common source LR score', savfig='boxplot_line_acc_bestcom', rotation=0, on_screen=True, color = colors )
 
 #plot_boxplot_line(X=spec_samples_vec, Values=cllr_overall, mean=cllr_mean_double,  xaxis='Number of samples $\mathregular{S_{\# spec}}$', legenda= 'Mean Cllr', yaxis='Cllr', boxtitle='Cllr specific source LR score', savfig='boxplot_line_cllr_Sspec', rotation=0, on_screen=True, color = colors )
 #plot_boxplot_line(X=spec_samples_vec, Values=LR_acc_overall, mean=acc_mean_double,  xaxis='Number of samples $\mathregular{S_{\# spec}}$', legenda= 'Mean accuracy', yaxis='Accuracy', boxtitle='Accuracy specific source LR score', savfig='boxplot_line_acc_Sspec', rotation=0, on_screen=True, color = colors )

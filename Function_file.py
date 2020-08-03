@@ -59,6 +59,37 @@ class extract_words_new():
             newtexts.append(text)
         return newtexts
 
+class rearrange_samples_CGN():
+    def __init__(self, n, wordlist):
+        self.n = n
+        self.wordlist = wordlist
+
+    def __call__(self, items):
+        allwords = [word for word in items]
+        if len(allwords) < self.n:
+            resampled_items = []
+            print(items)
+            return resampled_items
+        if len(allwords) < (2*self.n):
+            resampled_items = []
+            return resampled_items
+        else:
+            nitems = len(allwords) // self.n
+            itemsize = self.n
+            resampled_items = []
+            resampled_itemsF = []
+            for i in range(nitems):
+                resampled_items.append(allwords[int(i * itemsize):int(i * itemsize + itemsize)])
+            LOG.info('rearrange_samples: %d elements in %d items -> %d items' % (
+                len(allwords), len(items), len(resampled_items)))
+        for text in resampled_items:
+            newtext = []
+            for word in text:
+                if word in self.wordlist:
+                    newtext.append(word)
+            resampled_itemsF.append(newtext)
+        return resampled_itemsF
+
 class rearrange_samples_new():
     def __init__(self, n, wordlist):
         self.n = n
@@ -137,11 +168,10 @@ def read_session(lines):
     words = []
     test = lines.read()
     test = re.sub('[0-9]*\.[0-9]*\t', '', test)
-    test = re.sub('[A-Za-z]*\*n','',test)
     test = re.sub('[A-Za-z]*\*u','',test)
     test = re.sub('[A-Za-z]*\*a','',test)
     test = re.sub('[A-Za-z]*\*x','',test)
-    test = test.replace('start\tend\ttext\n', '').replace('.', '').replace('-', ' ').replace('?', '').replace('\n',' ').replace('xxx', '').replace('ggg', '').replace('vvv', '').replace('*v','').replace('*s','')
+    test = test.replace('start\tend\ttext\n', '').replace('.', '').replace('-', ' ').replace('?', '').replace('\n',' ').replace('xxx', '').replace('ggg', '').replace('vvv', '').replace('*v','').replace('*s','').replace('*n','')
     s = test
     s = s.translate({ord(c): None for c in string.punctuation})
     all_words += len(word_tokenize(s))
@@ -163,7 +193,7 @@ def compile_data(string):
 def compile_data_CGN(string):
     speakers = collections.defaultdict(list)  # create empty dictionary list
     for digest, filepath in tqdm(list(read_list(string)), desc='compiling data'):  # progress bar
-        speakerid = str(re.findall('N[0-9]{5}_fn[0-9]{6}', os.path.basename(filepath)))  # basename path
+        speakerid = str(re.findall('N[0-9]{5}_', os.path.basename(filepath)))  # basename path
         with open(filepath, encoding='ISO-8859-1') as f:
             texts = read_session(f)
             speakers[speakerid].extend(texts)
@@ -265,6 +295,23 @@ def filter_texts_size_new(speakerdict, wordlist, aantal_woorden):
             filtered[label] = texts
     return filtered
 
+def filter_texts_size_CGN(speakerdict, wordlist, aantal_woorden):
+    filters = [
+        extract_words_new(),
+        rearrange_samples_CGN(aantal_woorden, wordlist),
+        create_feature_vector(wordlist),
+    ]
+    filtered = {}
+    for label, texts in speakerdict.items():
+        LOG.info('filter in subset {}'.format(label))
+        for f in filters:
+            texts = f(texts)
+        #if len(texts) == 0:
+        #    print(label)
+        if len(texts) != 0:
+            filtered[label] = texts
+    return filtered
+
 
 def to_vector_size(speakers, str):
     labels = []
@@ -281,7 +328,7 @@ def to_vector_size_CGN(speakers, str):
     features = []
     distinct_labels = sorted(speakers.keys())
     for label, texts in speakers.items():
-        labels.extend([re.findall('N[0-9]{5}', label) for i in range(len(texts))])
+        labels.extend([re.findall('N[0-9]{5}_', label) for i in range(len(texts))])
         features.append(texts)
 
     return np.concatenate(features), np.ravel(np.array(labels))
@@ -594,11 +641,12 @@ def load_testdata(var, repeat, filename):
         print('##########################################################' + str(i))
     return cllr_func, acc_func
 
-def plot_tippetmulti(parameter, LRs, labels, colorset, savefig=None, show=None, titleplot=None, kw_figure={}):
+def plot_tippetmulti(parameter, LRs, labels, par, colorset, savefig=None, show=None, titleplot=None, kw_figure={}):
     """
     plots the 10log lrs tippett plt
     """
     plt.figure(**kw_figure)
+    styles = ['-','-.',':']
     for i in range(np.size(LRs)):
         LR = LRs[i]
         label = labels[i]
@@ -606,9 +654,9 @@ def plot_tippetmulti(parameter, LRs, labels, colorset, savefig=None, show=None, 
         LR_0, LR_1 = liar.util.Xy_to_Xn(LR, label)
         perc0 = (sum(i > xplot for i in np.log10(LR_0)) / len(LR_0)) * 100
         perc1 = (sum(i > xplot for i in np.log10(LR_1)) / len(LR_1)) * 100
-        titletip= 'LRs for $F=$' + str(parameter[i])
-        plt.plot(xplot, perc1, label=titletip, color = colorset[i])
-        plt.plot(xplot, perc0, color = colorset[i])
+        titletip= 'LRs for '+ par + str(parameter[i])
+        plt.plot(xplot, perc1, label=titletip, color = colorset[i], linestyle= styles[i])
+        plt.plot(xplot, perc0, color = colorset[i], linestyle= styles[i])
 
     plt.axvline(x=0, color='k', linestyle='--')
     plt.xlabel('Log10 likelihood ratio')

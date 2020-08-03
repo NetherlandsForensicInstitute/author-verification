@@ -37,11 +37,11 @@ Tippet_title = 'Tippett plot SVM'
 #algorithm parameters
 repeat = 100
 test_authors = 10
-train_authors = 190
+train_authors = 187
 train_samples_vec = [100, 500, 1000, 2000, 3000, 4000, 5000, 6000]
-test_samples = 1000
+test_samples = 500
 sample_size_total = [500]
-n_freq_total = [200]
+n_freq_total = [400]
 plotfigure = True
 picklefile ='SVM' + 'At' + str(test_authors) + 'Atr' + str(train_authors) + 'rep' + str(repeat) + 'ss' + str(sample_size_total) + 'F' + str(n_freq_total) + 'S' + str(train_samples_vec)
 
@@ -56,13 +56,14 @@ LR_clf_overall = []
 labels_clf_overall = []
 labels_boxplot = []
 
-speakers_path = 'JSON/speakers_author.json'
+speakers_path = 'JSON/speakers_FINAL.json'
 if os.path.exists(speakers_path):
     print('loading', speakers_path)
     speakers_wordlist = load_data(speakers_path)
 else:
-    speakers_wordlist = compile_data('SHA256_textfiles/sha256.filesnew.txt')
+    speakers_wordlist = compile_data('SHA256_textfiles/FINALdata.txt')
     store_data(speakers_path, speakers_wordlist)
+
 
 #start validation loop
 
@@ -81,8 +82,6 @@ for k_ss in train_samples_vec:
             train_samples = k_ss
 
             labels_boxplot.append(('F=' + str(n_freq) + ', S#=' + str(k_ss)))
-
-
             wordlist = list(zip(*get_frequent_words(speakers_wordlist, n_freq)))[0]
             speakers = filter_texts_size_new(speakers_wordlist, wordlist, sample_size)
             speakers = dict(list(speakers.items()))
@@ -123,11 +122,11 @@ for k_ss in train_samples_vec:
                 labels_ds_t, features_ds_t = ds_feature(X_t, y_t, 'shan', len(labels_ss_t))
 
                 X = np.concatenate((features_ss, features_ds))
-                y = list(map(int, (np.append(labels_ss, labels_ds, axis=0))))
+                y = np.asarray(list(map(int, (np.append(labels_ss, labels_ds, axis=0)))))
                 X = X.reshape(len(X), -1)
 
                 X_t = np.concatenate((features_ss_t, features_ds_t))
-                y_t = list(map(int, (np.append(labels_ss_t, labels_ds_t, axis=0))))
+                y_t = np.asarray(list(map(int, (np.append(labels_ss_t, labels_ds_t, axis=0)))))
                 if len(X_t.shape) == 3:
                     X_t = X_t.reshape(len(X_t), -1)
 
