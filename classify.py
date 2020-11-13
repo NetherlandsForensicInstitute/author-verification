@@ -25,6 +25,7 @@ import Function_file as data
 
 DEFAULT_LOGLEVEL = logging.WARNING
 LOG = logging.getLogger(__name__)
+FRIDA_PATH = 'Transcripties.sha256'
 
 
 def setupLogging(args):
@@ -51,7 +52,7 @@ def setupLogging(args):
 
 
 class DataSource:
-    def __init__(self, n_frequent_words, tokens_per_sample):
+    def __init__(self, path, n_frequent_words, tokens_per_sample):
         self._n_freqwords = n_frequent_words
         self._tokens_per_sample = tokens_per_sample
 
@@ -61,7 +62,7 @@ class DataSource:
         if os.path.exists(speakers_path):
             speakers_wordlist = data.load_data(speakers_path)
         else:
-            speakers_wordlist = data.compile_data('SHA256_textfiles/sha256.filesnew.txt')
+            speakers_wordlist = data.compile_data(path)
             data.store_data(speakers_path, speakers_wordlist)
 
         # extract a list of frequent words
@@ -340,7 +341,7 @@ def get_batch_simple(X, y, repeats):
 
 
 def evaluate_samesource(desc, n_frequent_words, tokens_per_sample, preprocessor, classifier, calibrator, plot=None, repeats=1):
-    ds = DataSource(n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
+    ds = DataSource(FRIDA_PATH, n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
 
     #calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
     clf = lir.CalibratedScorer(classifier, calibrator)
