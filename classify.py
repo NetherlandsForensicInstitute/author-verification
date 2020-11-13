@@ -341,6 +341,19 @@ def get_batch_simple(X, y, repeats):
 
 
 def evaluate_samesource(desc, n_frequent_words, tokens_per_sample, preprocessor, classifier, calibrator, plot=None, repeats=1):
+    """
+    Run an experiment with the parameters provided.
+
+    :param desc: free text description of the experiment
+    :param n_frequent_words: int: number of most frequent words
+    :param tokens_per_sample: int: number of tokens per sample (sample length)
+    :param preprocessor: Pipeline: an sklearn pipeline
+    :param classifier: Pipeline: an sklearn pipeline with a classifier as last element
+    :param calibrator: a LIR calibrator
+    :param plot:
+    :param repeats: int: the number of times the experiment is run
+    :return: a CLLR
+    """
     ds = DataSource(FRIDA_PATH, n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
 
     #calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
