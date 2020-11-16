@@ -25,7 +25,6 @@ import Function_file as data
 
 DEFAULT_LOGLEVEL = logging.WARNING
 LOG = logging.getLogger(__name__)
-FRIDA_PATH = 'Transcripties.sha256'
 
 
 def setupLogging(args):
@@ -55,14 +54,16 @@ class DataSource:
     def __init__(self, path, n_frequent_words, tokens_per_sample):
         self._n_freqwords = n_frequent_words
         self._tokens_per_sample = tokens_per_sample
+        self._path = path
 
     def get(self):
         os.makedirs('.cache', exist_ok=True)
         speakers_path = '.cache/speakers_author.json'
         if os.path.exists(speakers_path):
+            LOG.debug(f'using cache file: {speakers_path}')
             speakers_wordlist = data.load_data(speakers_path)
         else:
-            speakers_wordlist = data.compile_data(path)
+            speakers_wordlist = data.compile_data(self._path)
             data.store_data(speakers_path, speakers_wordlist)
 
         # extract a list of frequent words
@@ -302,7 +303,7 @@ class makeplots:
     def __init__(self, path_prefix=None):
         self.path_prefix = path_prefix
 
-    def __call__(self, lrs, y, title=''):
+    def __call__(self, lrs, y, title='', shortname=''):
         n_same = int(np.sum(y))
         n_diff = int(y.size-np.sum(y))
 
@@ -310,9 +311,10 @@ class makeplots:
         LOG.info(f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y==0])))}; {np.exp(np.mean(np.log(lrs[y==1])))}')
         LOG.info(f'  cllr: {lir.metrics.cllr(lrs, y)}')
 
-        tippet_path = f'{self.path_prefix}tippet.png' if self.path_prefix is not None else None
-        pav_path = f'{self.path_prefix}pav.png' if self.path_prefix is not None else None
-        ece_path = f'{self.path_prefix}ece.png' if self.path_prefix is not None else None
+        path_prefix = os.path.join(self.path_prefix, shortname)
+        tippet_path = f'{path_prefix}_tippet.png' if self.path_prefix is not None else None
+        pav_path = f'{path_prefix}_pav.png' if self.path_prefix is not None else None
+        ece_path = f'{path_prefix}_ece.png' if self.path_prefix is not None else None
 
         kw_figure = {}
 
@@ -340,21 +342,22 @@ def get_batch_simple(X, y, repeats):
         yield X_train, y_train, X_test, y_test
 
 
-def evaluate_samesource(desc, n_frequent_words, tokens_per_sample, preprocessor, classifier, calibrator, plot=None, repeats=1):
+def evaluate_samesource(desc, frida_path, n_frequent_words, tokens_per_sample, preprocessor, classifier, calibrator, plot=None, repeats=1):
     """
     Run an experiment with the parameters provided.
 
     :param desc: free text description of the experiment
+    :param frida_path: path to transcript index file
     :param n_frequent_words: int: number of most frequent words
     :param tokens_per_sample: int: number of tokens per sample (sample length)
     :param preprocessor: Pipeline: an sklearn pipeline
     :param classifier: Pipeline: an sklearn pipeline with a classifier as last element
     :param calibrator: a LIR calibrator
-    :param plot:
+    :param plot: a plotting function
     :param repeats: int: the number of times the experiment is run
     :return: a CLLR
     """
-    ds = DataSource(FRIDA_PATH, n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
+    ds = DataSource(frida_path, n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
 
     #calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
     clf = lir.CalibratedScorer(classifier, calibrator)
@@ -383,7 +386,7 @@ def evaluate_samesource(desc, n_frequent_words, tokens_per_sample, preprocessor,
     y_all = np.concatenate(y_all)
 
     if plot is not None:
-        plot(lrs, y_all, title=title)
+        plot(lrs, y_all, title=title, shortname=desc)
 
     return lir.metrics.cllr(lrs, y_all)
 
@@ -394,7 +397,7 @@ def aggregate_results(results):
         print(f'{desc}: cllr={result}')
     
 
-def run():
+def run(frida_path, resultdir):
     ### PREPROCESSORS
 
     prep_none = sklearn.pipeline.Pipeline([
@@ -448,6 +451,9 @@ def run():
 
     exp = experiments.Evaluation(evaluate_samesource, aggregate_results)
 
+    exp.parameter('frida_path', frida_path)
+    exp.parameter('plot', makeplots(resultdir))
+
     exp.parameter('n_frequent_words', 50)
     exp.addSearch('n_frequent_words', [50, 100, 150], include_default=False)
 
@@ -462,9 +468,9 @@ def run():
     exp.parameter('calibrator', lir.KDECalibrator())
     exp.parameter('repeats', 1)
 
-    #exp.runDefaults()
+    exp.runDefaults()
     #exp.runSearch('n_frequent_words')
-    exp.runFullGrid(['n_frequent_words', 'tokens_per_sample', 'classifier'])
+    #exp.runFullGrid(['n_frequent_words', 'tokens_per_sample', 'classifier'])
 
 
 if __name__ == '__main__':
@@ -475,8 +481,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', help='increases verbosity', action='count', default=0)
     parser.add_argument('-q', help='decreases verbosity', action='count', default=0)
+    parser.add_argument('--frida-path', help='path to FRIDA transcripts', default=config.frida_path)
+    parser.add_argument('--resultdir', help='path to generated output files', default=config.resultdir)
     args = parser.parse_args()
 
     setupLogging(args)
 
-    run()
+    os.makedirs(args.resultdir, exist_ok=True)
+    run(args.frida_path, args.resultdir)

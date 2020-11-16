@@ -22,8 +22,6 @@ import lir as liar
 
 LOG = logging.getLogger(__name__)
 
-DATADIR = 'data'
-
 
 def read_list(path):
     with builtins.open(path) as f:
@@ -123,13 +121,16 @@ def read_session(lines):
     #print('all words in session:', all_words)
     return speakers
 
-def compile_data(string):
+def compile_data(index_path):
+    basedir = os.path.dirname(index_path)
     speakers = collections.defaultdict(list)  # create empty dictionary list
-    for digest, filepath in tqdm(list(read_list(string)), desc='compiling data'):  # progress bar
+
+    for digest, filepath in tqdm(list(read_list(index_path)), desc='compiling data'):  # progress bar
         speakerid = str(re.findall('SP[0-9]{3}', os.path.basename(filepath)))  # basename path
-        with open(os.path.join(DATADIR, filepath)) as f:
+        with open(os.path.join(basedir, filepath)) as f:
             texts = read_session(f)
             speakers[speakerid].extend(texts)
+
     return speakers
 
 
