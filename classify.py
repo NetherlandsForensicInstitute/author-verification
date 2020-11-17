@@ -8,6 +8,7 @@ import warnings
 
 import confidence
 import lir
+import lir.transformers
 from matplotlib import pyplot as plt
 import numpy as np
 import scipy.spatial
@@ -18,6 +19,7 @@ import sklearn.neighbors
 import sklearn.pipeline
 import sklearn.preprocessing
 import sklearn.svm
+from tqdm import tqdm
 
 import experiments
 import Function_file as data
@@ -40,8 +42,6 @@ def setupLogging(args):
     logging.getLogger().addHandler(ch)
 
     # setup a file handler
-    if os.path.exists('run.log'):
-        os.rename('run.log', 'run.log.0')
     fh = logging.FileHandler('run.log', mode='w')
     fh.setFormatter(fmt)
     fh.setLevel(logging.INFO)
@@ -156,34 +156,6 @@ class GaussianCdfTransformer(sklearn.base.TransformerMixin):
         assert len(X.shape) == 2
         X = X[:,self._valid_features]
         return scipy.stats.norm.cdf(X, self._mean, self._std)
-
-
-class InstancePairing(sklearn.base.TransformerMixin):
-    def __init__(self, same_source_limit=None, different_source_limit=None):
-        self._ss_limit = same_source_limit
-        self._ds_limit = different_source_limit
-
-    def fit(self, X):
-        return self
-
-    def transform(self, X, y):
-        pairing = np.array(np.meshgrid(np.arange(X.shape[0]), np.arange(X.shape[0]))).T.reshape(-1, 2)  # generate all possible pairs
-        same_source = y[pairing[:, 0]] == y[pairing[:, 1]]
-
-        rows_same = np.where((pairing[:, 0] < pairing[:, 1]) & same_source)[0]  # pairs with different id and same source
-        if self._ss_limit is not None and rows_same.size > self._ss_limit:
-            rows_same = np.random.choice(rows_same, self._ss_limit, replace=False)
-
-        rows_diff = np.where((pairing[:, 0] < pairing[:, 1]) & ~same_source)[0]  # pairs with different id and different source
-        ds_limit = rows_diff.size if self._ds_limit is None else rows_same.size if self._ds_limit == 'balance' else self._ds_limit
-        if rows_diff.size > ds_limit:
-            rows_diff = np.random.choice(rows_diff, ds_limit, replace=False)
-
-        pairing = np.concatenate([pairing[rows_same,:], pairing[rows_diff,:]])
-        X = np.stack([X[pairing[:, 0]], X[pairing[:, 1]]], axis=2)  # pair instances by adding another dimension
-        y = np.concatenate([np.ones(rows_same.size), np.zeros(rows_diff.size)])  # apply the new labels: 1=same_source versus 0=different_source
-
-        return X, y
 
 
 GaussParams = collections.namedtuple('StandardParams', ['mean0', 'std0', 'mean1', 'std1'])
@@ -323,12 +295,12 @@ class makeplots:
         lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
 
 
-def get_pairs(X, y, authors_subset):
+def get_pairs(X, y, authors_subset, sample_size):
     X_subset = X[np.isin(y, authors_subset), :]
     y_subset = y[np.isin(y, authors_subset)]
 
     # pair instances: same source and different source
-    return InstancePairing(different_source_limit='balance').transform(X_subset, y_subset)
+    return lir.transformers.InstancePairing(same_source_limit=sample_size//2, different_source_limit=sample_size//2).transform(X_subset, y_subset)
 
 
 def get_batch_simple(X, y, repeats):
@@ -336,8 +308,8 @@ def get_batch_simple(X, y, repeats):
         authors = np.unique(y)
         authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
 
-        X_train, y_train = get_pairs(X, y, authors_train)
-        X_test, y_test = get_pairs(X, y, authors_test)
+        X_train, y_train = get_pairs(X, y, authors_train, 1000)
+        X_test, y_test = get_pairs(X, y, authors_test, 1000)
 
         yield X_train, y_train, X_test, y_test
 
@@ -376,7 +348,7 @@ def evaluate_samesource(desc, frida_path, n_frequent_words, tokens_per_sample, p
 
     lrs = []
     y_all = []
-    for X_train, y_train, X_test, y_test in get_batch_simple(X, y, repeats):
+    for X_train, y_train, X_test, y_test in tqdm(get_batch_simple(X, y, repeats)):
         # fit a classifier and calculate LRs
         clf.fit(X_train, y_train)
         lrs.append(clf.predict_lr(X_test))
@@ -454,23 +426,27 @@ def run(frida_path, resultdir):
     exp.parameter('frida_path', frida_path)
     exp.parameter('plot', makeplots(resultdir))
 
-    exp.parameter('n_frequent_words', 50)
-    exp.addSearch('n_frequent_words', [50, 100, 150], include_default=False)
+    exp.parameter('n_frequent_words', 200)
+    exp.addSearch('n_frequent_words', [50, 150, 250], include_default=False)
 
-    exp.parameter('tokens_per_sample', 1000)
-    exp.addSearch('tokens_per_sample', [500, 1000, 1500], include_default=False)
+    exp.parameter('tokens_per_sample', 250)
+    exp.addSearch('tokens_per_sample', [250, 750, 1500], include_default=False)
 
-    exp.parameter('preprocessor', prep_none)
+    exp.parameter('preprocessor', prep_gauss)
 
-    exp.parameter('classifier', ('dist', dist))
-    exp.addSearch('classifier', [('svc', svc)])
+    exp.parameter('classifier', ('logit', logit))
+    exp.addSearch('classifier', [('dist', dist), ('svc', svc)])
 
-    exp.parameter('calibrator', lir.KDECalibrator())
-    exp.parameter('repeats', 1)
+    exp.parameter('calibrator', lir.KDECalibrator(bandwidth=.3))
+    exp.parameter('repeats', 5)
 
-    exp.runDefaults()
-    #exp.runSearch('n_frequent_words')
-    #exp.runFullGrid(['n_frequent_words', 'tokens_per_sample', 'classifier'])
+    try:
+        #exp.runDefaults()
+        exp.runSearch('tokens_per_sample')
+        #exp.runFullGrid(['n_frequent_words', 'tokens_per_sample', 'classifier'])
+    except Exception as e:
+        LOG.fatal(str(e))
+        raise
 
 
 if __name__ == '__main__':

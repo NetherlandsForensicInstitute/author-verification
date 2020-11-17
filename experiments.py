@@ -19,6 +19,7 @@ exp.runSearch()
 ```
 """
 import collections
+import sys
 
 
 ParamSearch = collections.namedtuple('ParamSearch', ('name', 'alternatives', 'include_default'))
@@ -60,8 +61,18 @@ Search = collections.namedtuple('Search', ['name', 'alternatives', 'include_defa
 
 
 class Evaluation:
-    def __init__(self, run_experiment, aggregate_results=None):
-        self._run_experiment = run_experiment
+    def __init__(self, evaluate, aggregate_results=None):
+        """
+        Parameters:
+            - evaluate: a function which calculates results, given a set of parameters;
+              the function takes as input:
+                  - named parameters, as defined in this object using the `parameter` method;
+                  - desc: a text describing the evaluation
+            - aggregate_results: a function which aggregates results; the function
+              takes as input an iterator over the values returned by sequential
+              calls to `evaluate` with different parameters.
+        """
+        self._run_experiment = evaluate
         self._aggregate_results = aggregate_results
         self._params = {}
         self._searches = {}
@@ -158,8 +169,11 @@ class Evaluation:
         selected_params = [(search_name, exp_values) for search_name, exp_values in param_set]
         desc = ', '.join([f'{search_name}={exp_values}' for search_name, exp_values in param_set])
 
-        result = self._run_experiment(**param_values, desc=desc)
-        return selected_params, result
+        try:
+            result = self._run_experiment(**param_values, desc=desc)
+            return selected_params, result
+        except Exception as e:
+            raise RuntimeError(f'failed to evaluate with parameters {desc}', e)
 
     def runExperiments(self, experiments):
         results = []
