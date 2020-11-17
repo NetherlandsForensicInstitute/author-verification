@@ -21,6 +21,7 @@ import sklearn.preprocessing
 import sklearn.svm
 from tqdm import tqdm
 
+from authorship import get_data_replacement as get_data
 import experiments
 import Function_file as data
 
@@ -48,37 +49,6 @@ def setupLogging(args):
     logging.getLogger().addHandler(fh)
 
     logging.getLogger('').setLevel(logging.DEBUG)
-
-
-class DataSource:
-    def __init__(self, path, n_frequent_words, tokens_per_sample):
-        self._n_freqwords = n_frequent_words
-        self._tokens_per_sample = tokens_per_sample
-        self._path = path
-
-    def get(self):
-        os.makedirs('.cache', exist_ok=True)
-        speakers_path = '.cache/speakers_author.json'
-        if os.path.exists(speakers_path):
-            LOG.debug(f'using cache file: {speakers_path}')
-            speakers_wordlist = data.load_data(speakers_path)
-        else:
-            speakers_wordlist = data.compile_data(self._path)
-            data.store_data(speakers_path, speakers_wordlist)
-
-        # extract a list of frequent words
-        wordlist = [ word for word, freq in data.get_frequent_words(speakers_wordlist, self._n_freqwords) ]
-
-        # build a dictionary of feature vectors
-        speakers = data.filter_texts_size_new(speakers_wordlist, wordlist, self._tokens_per_sample)
-
-        # convert to X, y
-        X, y = data.to_vector_size(speakers)
-
-        return X, y
-
-    def __repr__(self):
-        return f'data(freqwords={self._n_freqwords}; ntokens={self._tokens_per_sample})'
 
 
 class ParticleCountToFraction(sklearn.base.TransformerMixin):
@@ -329,8 +299,6 @@ def evaluate_samesource(desc, frida_path, n_frequent_words, tokens_per_sample, p
     :param repeats: int: the number of times the experiment is run
     :return: a CLLR
     """
-    ds = DataSource(frida_path, n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
-
     #calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
     clf = lir.CalibratedScorer(classifier, calibrator)
 
@@ -341,7 +309,7 @@ def evaluate_samesource(desc, frida_path, n_frequent_words, tokens_per_sample, p
     LOG.info(f'{desc}: number of classes: {np.unique(ds.get()[1]).size}')
     LOG.info(f'{desc}: number of instances: {ds.get()[1].size}')
 
-    X, y = ds.get()
+    X, y = get_data(frida_path, n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
     assert X.shape[0] > 0
 
     X = preprocessor.fit_transform(X)

@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 
+import os
 import random
 
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
-from xgboost import XGBClassifier
 import pickle
-from Function_file import *
 import lir as liar
-from sklearn.svm import SVC, LinearSVC
+from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler, Normalizer
+from tqdm import tqdm
+
+from authorship import get_data_orig as get_data
+#from authorship import get_data_replacement as get_data
+
+import Function_file as data
 
 # set parameters
 
@@ -29,7 +35,7 @@ PAV_title = 'PAV plot SVM'
 Tippet_title = 'Tippett plot SVM'
 
 # algorithm
-repeat = 2
+repeat = 10
 test_authors = 10
 train_authors = 190
 sample_size_total = [1500]
@@ -51,6 +57,7 @@ LR_clf_overall = []
 labels_clf_overall = []
 labels_boxplot = []
 
+
 for i_ss in sample_size_total:
     for j_ss in n_freq_total:
 
@@ -64,29 +71,7 @@ for i_ss in sample_size_total:
         n_freq = j_ss
         labels_boxplot.append(('F=' + str(n_freq) + ', N=' + str(sample_size)))
 
-        speakers_path = 'JSON/speakers_newpreproces.json'
-        speakers_path_CGN = 'JSON/speakers_CGN.json'
-        if os.path.exists(speakers_path):
-            print('loading', speakers_path)
-            speakers_wordlist = load_data(speakers_path)
-        else:
-            speakers_wordlist = compile_data('SHA256_textfiles/ALLdata.txt')
-            store_data(speakers_path, speakers_wordlist)
-        if CGN:
-            if os.path.exists(speakers_path_CGN):
-                print('loading', speakers_path_CGN)
-                speakers_CGN = load_data(speakers_path_CGN)
-                wordlist = list(zip(*get_frequent_words(speakers_CGN, n_freq)))[0]
-            else:
-                speakers_CGN = compile_data('SHA256_textfiles/sha256.CGN.txt')
-                store_data(speakers_path_CGN, speakers_CGN)
-                wordlist = list(zip(*get_frequent_words(speakers_CGN, n_freq)))[0]
-        else:
-             wordlist = list(zip(*get_frequent_words(speakers_wordlist, n_freq)))[0]
-
-        speakers = filter_texts_size_new(speakers_wordlist, wordlist, sample_size)
-        speakers = dict(list(speakers.items()))
-        X_temp, y_temp = to_vector_size(speakers, '0')
+        X_temp, y_temp = get_data('data/ALLdata.txt', n_freq, sample_size)
         author_uni = np.unique(y_temp)
 
         hist_fig = 'Hist_SVM_ss-F' + str(n_freq) + 'ss' + str(sample_size)
@@ -116,10 +101,10 @@ for i_ss in sample_size_total:
             X = np.concatenate(X)
             y = np.ravel(np.array(y))
 
-            labels_ss, features_ss = ss_feature(X, y, 'shan', train_samples)
-            labels_ds, features_ds = ds_feature(X, y, 'shan', train_samples)
-            labels_ss_t, features_ss_t = ss_feature(X_t, y_t, 'shan', test_samples)
-            labels_ds_t, features_ds_t = ds_feature(X_t, y_t, 'shan', min(len(labels_ss_t), test_samples))
+            labels_ss, features_ss = data.ss_feature(X, y, 'shan', train_samples)
+            labels_ds, features_ds = data.ds_feature(X, y, 'shan', train_samples)
+            labels_ss_t, features_ss_t = data.ss_feature(X_t, y_t, 'shan', test_samples)
+            labels_ds_t, features_ds_t = data.ds_feature(X_t, y_t, 'shan', min(len(labels_ss_t), test_samples))
 
             X = np.concatenate((features_ss, features_ds))
             y = list(map(int, (np.append(labels_ss, labels_ds, axis=0))))
@@ -143,7 +128,7 @@ for i_ss in sample_size_total:
 
             LRtest_clf = calibrator1.transform(y_proba_clf[:, 0])
 
-            y_LR_clf, accur_clf = LR_acc_calc(LRtest_clf, np.asarray(y_t))
+            y_LR_clf, accur_clf = data.LR_acc_calc(LRtest_clf, np.asarray(y_t))
 
             # LR berekenen
             LR_clf1, LR_clf2 = liar.util.Xy_to_Xn(LRtest_clf, np.asarray(y_t))
