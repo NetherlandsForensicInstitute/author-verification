@@ -137,16 +137,16 @@ for i_ss in sample_size_total:
 
             cal_clf = clf.predict_proba(X)
 
-            calibrator1.fit(cal_clf[:, 0], y)
+            calibrator1.fit(cal_clf[:, 0], np.asarray(y))
 
             y_proba_clf = clf.predict_proba(X_t)
 
             LRtest_clf = calibrator1.transform(y_proba_clf[:, 0])
 
-            y_LR_clf, accur_clf = LR_acc_calc(LRtest_clf, y_t)
+            y_LR_clf, accur_clf = LR_acc_calc(LRtest_clf, np.asarray(y_t))
 
             # LR berekenen
-            LR_clf1, LR_clf2 = liar.util.Xy_to_Xn(LRtest_clf, y_t)
+            LR_clf1, LR_clf2 = liar.util.Xy_to_Xn(LRtest_clf, np.asarray(y_t))
 
             # CLLR
             cllr_clf = liar.calculate_lr_statistics(LR_clf1, LR_clf2)
@@ -159,8 +159,7 @@ for i_ss in sample_size_total:
 
             if plotfigure and step == 0:
                 liar.plotting.plot_score_distribution_and_calibrator_fit(calibrator1, cal_clf[:, 0], y,
-                                                                         kw_figure={}, colorset=colors,
-                                                                         titleplot=hist_title, savefig=hist_fig)
+                                                                         savefig=hist_fig)
 
         cllr_clf_overall.append(cllr_clf_tot)
         LR_clf_acc_overall.append(LR_clf_acc_tot)
@@ -175,11 +174,11 @@ for i_ss in sample_size_total:
         labels_clf_overall.append(labels_clf_tot)
 
         # Tippett plot
-        liar.plotting.plot_tippet(LR_clf_tot, labels_clf_tot, savefig=Tippet_fig, titleplot=Tippet_title)
+        liar.plotting.plot_tippett(LR_clf_tot, labels_clf_tot, savefig=Tippet_fig)
         # PAV plot
-        liar.plotting.plot_pav(LR_clf_tot, labels_clf_tot, savefig=PAV_fig, titleplot=PAV_title)
+        liar.plotting.plot_pav(LR_clf_tot, labels_clf_tot, savefig=PAV_fig)
         # ECEplot
-        liar.ece.plot(LR_clf_tot, labels_clf_tot, savefig=ECE_fig, titleplot=ECE_title)
+        liar.ece.plot(LR_clf_tot, labels_clf_tot, path=ECE_fig)
 
 with open(picklefile, 'wb') as f:
     pickle.dump([cllr_stat_clf, cllr_mean_clf, LR_clf_acc_overall, LR_ACC_mean_clf, labels_boxplot, LR_clf_overall,
