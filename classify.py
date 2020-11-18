@@ -4,6 +4,8 @@ import argparse
 import collections
 import logging
 import os
+import sys
+import traceback
 import warnings
 
 import confidence
@@ -21,9 +23,8 @@ import sklearn.preprocessing
 import sklearn.svm
 from tqdm import tqdm
 
-from authorship import get_data_replacement as get_data
+import data
 import experiments
-import Function_file as data
 
 
 DEFAULT_LOGLEVEL = logging.WARNING
@@ -49,14 +50,6 @@ def setupLogging(args):
     logging.getLogger().addHandler(fh)
 
     logging.getLogger('').setLevel(logging.DEBUG)
-
-
-class ParticleCountToFraction(sklearn.base.TransformerMixin):
-    def fit(self, X):
-        return self
-
-    def transform(self, X):
-        return (X.T / np.sum(X, axis=1)).T
 
 
 class KdeCdfTransformer(sklearn.base.TransformerMixin):
@@ -172,17 +165,6 @@ class GaussianScorer(sklearn.base.BaseEstimator):
         return np.prod(lir.to_odds(np.array(p)), axis=2).T  # multiply the odds over categories (assume conditional independence)
 
 
-class AbsDiffTransformer(sklearn.base.TransformerMixin):
-    def fit(self, X, y=None):
-        return self
-
-    def transform(self, X):
-        assert len(X.shape) == 3
-        assert X.shape[2] == 2
-
-        return np.abs(X[:,:,0] - X[:,:,1])
-
-
 class BrayDistance(sklearn.base.TransformerMixin):
     def fit(self, X, y=None):
         return self
@@ -209,10 +191,13 @@ class ShanDistanceVector(sklearn.base.TransformerMixin):
         q = X[:,:,1]
         m = (p + q) / 2.0
 
-        # TODO: may be negative
         left = scipy.spatial.distance.rel_entr(p, m)
         right = scipy.spatial.distance.rel_entr(q, m)
-        result = np.sqrt((left + right) / 2.0)
+
+        try:
+            result = np.sqrt((left + right) / 2.)
+        except:
+            raise ValueError('illegal input for ShanDistanceVector (relative entropy may be negative if input contains values > 1)')
 
         assert X.shape[0:2] == result.shape
         return result
@@ -284,7 +269,7 @@ def get_batch_simple(X, y, repeats):
         yield X_train, y_train, X_test, y_test
 
 
-def evaluate_samesource(desc, frida_path, n_frequent_words, tokens_per_sample, preprocessor, classifier, calibrator, plot=None, repeats=1):
+def evaluate_samesource(desc, data, n_frequent_words, tokens_per_sample, preprocessor, classifier, calibrator, plot=None, repeats=1):
     """
     Run an experiment with the parameters provided.
 
@@ -302,15 +287,16 @@ def evaluate_samesource(desc, frida_path, n_frequent_words, tokens_per_sample, p
     #calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
     clf = lir.CalibratedScorer(classifier, calibrator)
 
+    ds = data.DataSource(data, n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
+    X, y = ds.get()
+    assert X.shape[0] > 0
+
     desc_pre = '; '.join(name for name, tr in preprocessor.steps)
     desc_clf = '; '.join(name for name, tr in clf.scorer.steps)
     title = f'{desc}: using common source model: {desc_pre}; {desc_clf}; {ds}; repeats={repeats}'
     LOG.info(title)
-    LOG.info(f'{desc}: number of classes: {np.unique(ds.get()[1]).size}')
-    LOG.info(f'{desc}: number of instances: {ds.get()[1].size}')
-
-    X, y = get_data(frida_path, n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
-    assert X.shape[0] > 0
+    LOG.info(f'{desc}: number of classes: {np.unique(y).size}')
+    LOG.info(f'{desc}: number of instances: {y.size}')
 
     X = preprocessor.fit_transform(X)
 
@@ -337,7 +323,7 @@ def aggregate_results(results):
         print(f'{desc}: cllr={result}')
     
 
-def run(frida_path, resultdir):
+def run(data, resultdir):
     ### PREPROCESSORS
 
     prep_none = sklearn.pipeline.Pipeline([
@@ -356,7 +342,7 @@ def run(frida_path, resultdir):
         ])
 
     prep_sum = sklearn.pipeline.Pipeline([
-            ('scale:sum', ParticleCountToFraction()),
+            ('scale:sum', lir.transformers.SumNormalizer()),
             ('pop:none', None),
         ])
 
@@ -378,7 +364,7 @@ def run(frida_path, resultdir):
         ])
 
     logit = sklearn.pipeline.Pipeline([
-            ('diff:abs', AbsDiffTransformer()),
+            ('diff:abs', lir.transformers.AbsDiffTransformer()),
             #('shan', ShanDistance()),
             #('bray', BrayDistance()),
             ('clf:logit', LogisticRegression(class_weight='balanced')),
@@ -391,30 +377,34 @@ def run(frida_path, resultdir):
 
     exp = experiments.Evaluation(evaluate_samesource, aggregate_results)
 
-    exp.parameter('frida_path', frida_path)
+    exp.parameter('data', data)
     exp.parameter('plot', makeplots(resultdir))
 
     exp.parameter('n_frequent_words', 200)
-    exp.addSearch('n_frequent_words', [50, 150, 250], include_default=False)
 
     exp.parameter('tokens_per_sample', 250)
     exp.addSearch('tokens_per_sample', [250, 750, 1500], include_default=False)
 
-    exp.parameter('preprocessor', prep_gauss)
+    exp.parameter('preprocessor', prep_sum)
 
-    exp.parameter('classifier', ('logit', logit))
+    exp.parameter('classifier', ('clf', svc))
     exp.addSearch('classifier', [('dist', dist), ('svc', svc)])
 
-    exp.parameter('calibrator', lir.KDECalibrator(bandwidth=.3))
-    exp.parameter('repeats', 5)
+    exp.parameter('calibrator', lir.KDECalibrator())
+    exp.parameter('repeats', 10)
 
     try:
         #exp.runDefaults()
         exp.runSearch('tokens_per_sample')
         #exp.runFullGrid(['n_frequent_words', 'tokens_per_sample', 'classifier'])
     except Exception as e:
-        LOG.fatal(str(e))
-        raise
+        LOG.fatal(e.args[1])
+        LOG.fatal(e.args[0])
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+        traceback.print_tb(exc_traceback, file=sys.stdout)
+
+
+Data = collections.namedtuple('Data', ['path', 'sha256'])
 
 
 if __name__ == '__main__':
@@ -425,11 +415,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', help='increases verbosity', action='count', default=0)
     parser.add_argument('-q', help='decreases verbosity', action='count', default=0)
-    parser.add_argument('--frida-path', help='path to FRIDA transcripts', default=config.frida_path)
+    parser.add_argument('--data', help='dataset to be used', default=config.data.path)
     parser.add_argument('--resultdir', help='path to generated output files', default=config.resultdir)
     args = parser.parse_args()
 
     setupLogging(args)
 
+    data_hash = config.data.sha256 if args.data == config.data.path else None
+    dataset = Data(args.data, data_hash)
+
     os.makedirs(args.resultdir, exist_ok=True)
-    run(args.frida_path, args.resultdir)
+    run(dataset, args.resultdir)

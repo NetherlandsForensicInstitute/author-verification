@@ -23,15 +23,6 @@ import lir as liar
 LOG = logging.getLogger(__name__)
 
 
-def read_list(path):
-    with builtins.open(path) as f:
-        for line in f:
-            pos = line.find('  ')
-            filehash = line[:pos]
-            filepath = line[pos + 2:-1]
-            yield filehash, filepath
-
-
 class extract_words():
     def __init__(self, wordlist):
         self.wordlist = wordlist
@@ -99,40 +90,6 @@ def opentext(path, digest):
     encoding = 'utf8'  # if bom == b'\xfe\xff' else 'ascii'
     return Function_file.open(path, digest, algorithm='sha256', encoding=encoding, mode='t')
 
-all_words = 0
-
-def read_session(lines):
-    global all_words
-    global test
-    speakers = []
-    words = []
-    test = lines.read()
-    test = re.sub('[0-9]*\.[0-9]*\t', '', test)
-    test = re.sub('[A-Za-z]*\*n','',test)
-    test = re.sub('[A-Za-z]*\*u','',test)
-    test = re.sub('[A-Za-z]*\*a','',test)
-    test = re.sub('[A-Za-z]*\*x','',test)
-    test = test.replace('start\tend\ttext\n', '').replace('.', '').replace('-', ' ').replace('?', '').replace('\n',' ').replace('xxx', '').replace('ggg', '').replace('vvv', '').replace('*v','').replace('*s','')
-    s = test
-    s = s.translate({ord(c): None for c in string.punctuation})
-    all_words += len(word_tokenize(s))
-    # print(word_tokenize(s))
-    speakers.extend(word_tokenize(s))
-    #print('all words in session:', all_words)
-    return speakers
-
-def compile_data(index_path):
-    basedir = os.path.dirname(index_path)
-    speakers = collections.defaultdict(list)  # create empty dictionary list
-
-    for digest, filepath in tqdm(list(read_list(index_path)), desc='compiling data'):  # progress bar
-        speakerid = str(re.findall('SP[0-9]{3}', os.path.basename(filepath)))  # basename path
-        with open(os.path.join(basedir, filepath)) as f:
-            texts = read_session(f)
-            speakers[speakerid].extend(texts)
-
-    return speakers
-
 
 def compile_data_CGN(string):
     speakers = collections.defaultdict(list)  # create empty dictionary list
@@ -142,16 +99,6 @@ def compile_data_CGN(string):
             texts = read_session(f)
             speakers[speakerid].extend(texts)
     return speakers
-
-
-def load_data(path):
-    with open(path) as f:
-        return json.loads(f.read())
-
-
-def store_data(path, speakers):
-    with open(path, 'w') as f:
-        f.write(json.dumps(speakers))
 
 
 def get_frequent_words(speakers, n):
