@@ -269,7 +269,7 @@ def get_batch_simple(X, y, repeats):
         yield X_train, y_train, X_test, y_test
 
 
-def evaluate_samesource(desc, data, n_frequent_words, tokens_per_sample, preprocessor, classifier, calibrator, plot=None, repeats=1):
+def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, preprocessor, classifier, calibrator, plot=None, repeats=1):
     """
     Run an experiment with the parameters provided.
 
@@ -287,7 +287,7 @@ def evaluate_samesource(desc, data, n_frequent_words, tokens_per_sample, preproc
     #calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
     clf = lir.CalibratedScorer(classifier, calibrator)
 
-    ds = data.DataSource(data, n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
+    ds = data.DataSource(dataset, n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
     X, y = ds.get()
     assert X.shape[0] > 0
 
@@ -323,7 +323,7 @@ def aggregate_results(results):
         print(f'{desc}: cllr={result}')
     
 
-def run(data, resultdir):
+def run(dataset, resultdir):
     ### PREPROCESSORS
 
     prep_none = sklearn.pipeline.Pipeline([
@@ -377,13 +377,14 @@ def run(data, resultdir):
 
     exp = experiments.Evaluation(evaluate_samesource, aggregate_results)
 
-    exp.parameter('data', data)
+    exp.parameter('dataset', dataset)
     exp.parameter('plot', makeplots(resultdir))
 
-    exp.parameter('n_frequent_words', 200)
+    exp.parameter('n_frequent_words', 50)
+    exp.addSearch('n_frequent_words', [50, 150, 250])
 
-    exp.parameter('tokens_per_sample', 250)
-    exp.addSearch('tokens_per_sample', [250, 750, 1500], include_default=False)
+    exp.parameter('tokens_per_sample', 200)
+    exp.addSearch('tokens_per_sample', [200, 800, 1400], include_default=False)
 
     exp.parameter('preprocessor', prep_sum)
 
@@ -395,8 +396,8 @@ def run(data, resultdir):
 
     try:
         #exp.runDefaults()
-        exp.runSearch('tokens_per_sample')
-        #exp.runFullGrid(['n_frequent_words', 'tokens_per_sample', 'classifier'])
+        #exp.runSearch('tokens_per_sample')
+        exp.runFullGrid(['n_frequent_words', 'tokens_per_sample'])
     except Exception as e:
         LOG.fatal(e.args[1])
         LOG.fatal(e.args[0])
