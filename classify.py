@@ -10,7 +10,7 @@ import warnings
 
 import confidence
 import lir
-import lir.transformers
+import transformers
 from matplotlib import pyplot as plt
 import numpy as np
 import scipy.spatial
@@ -255,7 +255,7 @@ def get_pairs(X, y, authors_subset, sample_size):
     y_subset = y[np.isin(y, authors_subset)]
 
     # pair instances: same source and different source
-    return lir.transformers.InstancePairing(same_source_limit=sample_size//2, different_source_limit=sample_size//2).transform(X_subset, y_subset)
+    return transformers.InstancePairing(same_source_limit=sample_size//2, different_source_limit=sample_size//2).transform(X_subset, y_subset)
 
 
 def get_batch_simple(X, y, repeats):
@@ -342,7 +342,7 @@ def run(dataset, resultdir):
         ])
 
     prep_sum = sklearn.pipeline.Pipeline([
-            ('scale:sum', lir.transformers.SumNormalizer()),
+            ('scale:sum', transformers.SumNormalizer()),
             ('pop:none', None),
         ])
 
@@ -364,7 +364,7 @@ def run(dataset, resultdir):
         ])
 
     logit = sklearn.pipeline.Pipeline([
-            ('diff:abs', lir.transformers.AbsDiffTransformer()),
+            ('diff:abs', transformers.AbsDiffTransformer()),
             #('shan', ShanDistance()),
             #('bray', BrayDistance()),
             ('clf:logit', LogisticRegression(class_weight='balanced')),
