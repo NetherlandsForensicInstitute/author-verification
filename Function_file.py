@@ -1,44 +1,26 @@
 #!/usr/bin/env python3
 
-from nltk.util import ngrams
-from collections import Counter
 import builtins
 import os
 from matplotlib.lines import Line2D
 import string
 import numpy as np
-import hashlib
-import string
 import random
 import seaborn as sns
-import numpy as np
 import re
 import json
 from nltk import word_tokenize
 from tqdm import tqdm
 import collections
 import logging
-import re
 from sklearn.feature_extraction.text import TfidfVectorizer
-from itertools import combinations
 from scipy.spatial import distance
-from scipy.special import kl_div
 import math as m
-from nltk.util import ngrams
 import matplotlib.pyplot as plt
 import pickle
 import lir as liar
 
 LOG = logging.getLogger(__name__)
-
-
-def read_list(path):
-    with builtins.open(path) as f:
-        for line in f:
-            pos = line.find('  ')
-            filehash = line[:pos]
-            filepath = line[pos + 2:-1]
-            yield filehash, filepath
 
 
 class extract_words():
@@ -52,12 +34,11 @@ class extract_words():
                 newtexts.append(text)
         return newtexts
 
+
 class extract_words_new():
     def __call__(self, texts):
-        newtexts = []
-        for text in texts:
-            newtexts.append(text)
-        return newtexts
+        yield from texts
+
 
 class rearrange_samples_CGN():
     def __init__(self, n, wordlist):
@@ -96,27 +77,9 @@ class rearrange_samples_new():
         self.wordlist = wordlist
 
     def __call__(self, items):
-        allwords = [word for word in items]
-        if len(allwords) < self.n:
-            resampled_items = []
-            print(items)
-            return resampled_items
-        else:
-            nitems = len(allwords) // self.n
-            itemsize = self.n
-            resampled_items = []
-            resampled_itemsF = []
-            for i in range(nitems):
-                resampled_items.append(allwords[int(i * itemsize):int(i * itemsize + itemsize)])
-            LOG.info('rearrange_samples: %d elements in %d items -> %d items' % (
-                len(allwords), len(items), len(resampled_items)))
-        for text in resampled_items:
-            newtext = []
-            for word in text:
-                if word in self.wordlist:
-                    newtext.append(word)
-            resampled_itemsF.append(newtext)
-        return resampled_itemsF
+        for i in range(len(items) // self.n):
+            yield [ word for word in items[i*self.n : (i+1)*self.n] if word in self.wordlist ]
+
 
 class rearrange_samples():
     def __init__(self, n):
@@ -134,7 +97,7 @@ class rearrange_samples():
             resampled_items = []
             for i in range(nitems):
                 resampled_items.append(allwords[int(i * itemsize):int(i * itemsize + itemsize)])
-            LOG.info('rearrange_samples: %d elements in %d items -> %d items' % (
+            LOG.debug('rearrange_samples: %d elements in %d items -> %d items' % (
                 len(allwords), len(items), len(resampled_items)))
             return resampled_items
 
@@ -148,8 +111,7 @@ class create_feature_vector():
             return []
         else:
             vectorizer = TfidfVectorizer(analyzer='word', use_idf=False, norm=None, vocabulary=self.vocabulary,
-                                         token_pattern=u'(?u)\\b\\w+\\b')
-            samples = [' '.join(words) for words in samples]
+                                         tokenizer=lambda x: x, preprocessor=lambda x: x, token_pattern=None)
             return vectorizer.fit_transform(samples).toarray()
 
 
@@ -158,36 +120,6 @@ def opentext(path, digest):
         bom = f.read(2)
     encoding = 'utf8'  # if bom == b'\xfe\xff' else 'ascii'
     return Function_file.open(path, digest, algorithm='sha256', encoding=encoding, mode='t')
-
-all_words = 0
-
-def read_session(lines):
-    global all_words
-    global test
-    speakers = []
-    words = []
-    test = lines.read()
-    test = re.sub('[0-9]*\.[0-9]*\t', '', test)
-    test = re.sub('[A-Za-z]*\*u','',test)
-    test = re.sub('[A-Za-z]*\*a','',test)
-    test = re.sub('[A-Za-z]*\*x','',test)
-    test = test.replace('start\tend\ttext\n', '').replace('.', '').replace('-', ' ').replace('?', '').replace('\n',' ').replace('xxx', '').replace('ggg', '').replace('vvv', '').replace('*v','').replace('*s','').replace('*n','')
-    s = test
-    s = s.translate({ord(c): None for c in string.punctuation})
-    all_words += len(word_tokenize(s))
-    # print(word_tokenize(s))
-    speakers.extend(word_tokenize(s))
-    print('all words in session:', all_words)
-    return speakers
-
-def compile_data(string):
-    speakers = collections.defaultdict(list)  # create empty dictionary list
-    for digest, filepath in tqdm(list(read_list(string)), desc='compiling data'):  # progress bar
-        speakerid = str(re.findall('SP[0-9]{3}', os.path.basename(filepath)))  # basename path
-        with open(filepath) as f:
-            texts = read_session(f)
-            speakers[speakerid].extend(texts)
-    return speakers
 
 
 def compile_data_CGN(string):
@@ -198,16 +130,6 @@ def compile_data_CGN(string):
             texts = read_session(f)
             speakers[speakerid].extend(texts)
     return speakers
-
-
-def load_data(path):
-    with open(path) as f:
-        return json.loads(f.read())
-
-
-def store_data(path, speakers):
-    with open(path, 'w') as f:
-        f.write(json.dumps(speakers))
 
 
 def get_frequent_words(speakers, n):
@@ -269,7 +191,7 @@ def filter_texts_size(speakerdict, wordlist, aantal_woorden):
 
     filtered = {}
     for label, texts in speakerdict.items():
-        LOG.info('filter in subset {}'.format(label))
+        LOG.debug('filter in subset {}'.format(label))
         for f in filters:
             texts = f(texts)
         #if len(texts) == 0:
@@ -286,9 +208,9 @@ def filter_texts_size_new(speakerdict, wordlist, aantal_woorden):
     ]
     filtered = {}
     for label, texts in speakerdict.items():
-        LOG.info('filter in subset {}'.format(label))
+        LOG.debug('filter in subset {}'.format(label))
         for f in filters:
-            texts = f(texts)
+            texts = list(f(texts))
         #if len(texts) == 0:
         #    print(label)
         if len(texts) != 0:
@@ -313,14 +235,15 @@ def filter_texts_size_CGN(speakerdict, wordlist, aantal_woorden):
     return filtered
 
 
-def to_vector_size(speakers, str):
+def to_vector_size(speakers):
     labels = []
     features = []
     for label, texts in speakers.items():
-        labels.extend([re.findall('[0-9]{3}', label) for i in range(len(texts))])
+        speaker_id = int(re.sub('[^0-9]', '', label))
+        labels.append(np.ones(len(texts)) * speaker_id)
         features.append(texts)
 
-    return np.concatenate(features), np.ravel(np.array(labels))
+    return np.concatenate(features), np.concatenate(labels)
 
 
 def to_vector_size_CGN(speakers, str):

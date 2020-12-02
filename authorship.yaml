@@ -1,0 +1,6 @@
+data:
+    path: frida/FINALdata.txt
+    sha256: b504ed38bbb392adac3ef94fe569dc3b96dc01c240045bc65589a2493d5e079c
+
+resultdir: output
+
