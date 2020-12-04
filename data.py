@@ -27,7 +27,7 @@ class DataSource:
             LOG.debug(f'using cache file: {speakers_path}')
             speakers_wordlist = load_data(speakers_path)
         else:
-            speakers_wordlist = compile_data(self._data.path)
+            speakers_wordlist = compile_data(self._data)
             store_data(speakers_path, speakers_wordlist)
 
         # extract a list of frequent words

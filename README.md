@@ -1,3 +1,48 @@
+Authorship verification
+=======================
+
+Prerequisites
+-------------
+
+* A python setup with virtualenv
+* the FRIDA dataset
+
+Setup
+-----
+
+Clone this repository:
+
+```sh
+git clone git@github.com:HolmesNL/author-verification.git
+cd author-verification
+```
+
+Setup a virtual environment:
+
+```sh
+virtualenv -p python3 venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+To download NLTK files, start `python` and run the following commands:
+
+```py
+import nltk
+nltk.download('punkt')
+```
+
+Copy or extract the FRIDA dataset into the `frida` directory.
+
+
+Running experiments
+-------------------
+
+```sh
+classify.py
+```
+
+
 Results
 =======
 

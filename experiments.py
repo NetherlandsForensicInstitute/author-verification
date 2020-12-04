@@ -174,7 +174,7 @@ class Evaluation:
             return selected_params, result
         except Exception as e:
             tb = sys.exc_info()[2]
-            raise RuntimeError(f'failed to evaluate with parameters {desc}', e).with_traceback(tb)
+            raise RuntimeError(f'failed to evaluate with parameters {desc}: {e}', e).with_traceback(tb)
 
     def runExperiments(self, experiments):
         results = []

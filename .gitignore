@@ -5,6 +5,7 @@ __pycache__
 
 /.cache
 /output
+/run.log
 /venv
 
 *vcs.xml
