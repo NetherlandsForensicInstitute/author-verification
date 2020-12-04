@@ -8,7 +8,8 @@ import string
 from nltk import word_tokenize
 from tqdm import tqdm
 
-import Function_file
+from boilerplate import fileio
+from . import Function_file
 
 
 LOG = logging.getLogger(__name__)
@@ -20,9 +21,13 @@ class DataSource:
         self._tokens_per_sample = tokens_per_sample
         self._data = data
 
+    def _get_cache_path(self):
+        filename_safe = re.sub('[^a-zA-Z0-9_-]', '_', self._data)
+        return f'.cache/{filename_safe}.json'
+
     def get(self):
         os.makedirs('.cache', exist_ok=True)
-        speakers_path = '.cache/speakers_author.json'
+        speakers_path = self._get_cache_path()
         if os.path.exists(speakers_path):
             LOG.debug(f'using cache file: {speakers_path}')
             speakers_wordlist = load_data(speakers_path)
@@ -90,9 +95,9 @@ def compile_data(index_path):
     basedir = os.path.dirname(index_path)
     speakers = collections.defaultdict(list)  # create empty dictionary list
 
-    for digest, filepath in tqdm(list(read_list(index_path)), desc='compiling data'):  # progress bar
+    for filepath, digest in tqdm(list(fileio.load_hashtable(index_path).items()), desc='compiling data'):
         speakerid = str(re.findall('SP[0-9]{3}', os.path.basename(filepath)))  # basename path
-        with open(os.path.join(basedir, filepath)) as f:
+        with fileio.sha256_open(os.path.join(basedir, filepath), digest, on_mismatch='warn') as f:
             texts = read_session(f)
             speakers[speakerid].extend(texts)
 

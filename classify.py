@@ -10,7 +10,6 @@ import warnings
 
 import confidence
 import lir
-import transformers
 from matplotlib import pyplot as plt
 import numpy as np
 import scipy.spatial
@@ -23,8 +22,9 @@ import sklearn.preprocessing
 import sklearn.svm
 from tqdm import tqdm
 
-import data
-import experiments
+from authorship import data
+from authorship import experiments
+from authorship import transformers
 
 
 DEFAULT_LOGLEVEL = logging.WARNING
