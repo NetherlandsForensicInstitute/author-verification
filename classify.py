@@ -10,7 +10,7 @@ import warnings
 
 import confidence
 import lir
-import transformers
+from lir import transformers
 from matplotlib import pyplot as plt
 import numpy as np
 import scipy.spatial
@@ -23,8 +23,8 @@ import sklearn.preprocessing
 import sklearn.svm
 from tqdm import tqdm
 
-import data
-import experiments
+from authorship import data
+from authorship import experiments
 
 
 DEFAULT_LOGLEVEL = logging.WARNING
@@ -342,7 +342,7 @@ def run(dataset, resultdir):
         ])
 
     prep_sum = sklearn.pipeline.Pipeline([
-            ('scale:sum', transformers.SumNormalizer()),
+            ('scale:sum', sklearn.preprocessing.Normalizer(norm='l1')),
             ('pop:none', None),
         ])
 

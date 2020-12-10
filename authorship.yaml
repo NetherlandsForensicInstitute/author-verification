@@ -1,2 +1,2 @@
-data: frida/FINALdata.txt
+data: frida/frida.sha256
 resultdir: output
