@@ -1,5 +1,5 @@
 confidence
-lir
+lir >= 0.0.5
 matplotlib
 numpy
 nltk
