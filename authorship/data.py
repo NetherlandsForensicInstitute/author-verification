@@ -96,7 +96,8 @@ def compile_data(index_path):
     speakers = collections.defaultdict(list)  # create empty dictionary list
 
     for filepath, digest in tqdm(list(fileio.load_hashtable(index_path).items()), desc='compiling data'):
-        speakerid = str(re.findall('SP[0-9]{3}', os.path.basename(filepath)))  # basename path
+        path_str = os.path.basename(filepath)
+        speakerid = path_str[:len(path_str) - 10]# basename path
         with fileio.sha256_open(os.path.join(basedir, filepath), digest, on_mismatch='warn') as f:
             texts = read_session(f)
             speakers[speakerid].extend(texts)

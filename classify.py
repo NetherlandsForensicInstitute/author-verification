@@ -234,11 +234,11 @@ class makeplots:
         n_same = int(np.sum(y))
         n_diff = int(y.size-np.sum(y))
 
-        LOG.info(f'  counts by class: diff={n_diff}; same={n_same}')
+        LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
         LOG.info(f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y==0])))}; {np.exp(np.mean(np.log(lrs[y==1])))}')
         LOG.info(f'  cllr: {lir.metrics.cllr(lrs, y)}')
 
-        path_prefix = os.path.join(self.path_prefix, shortname)
+        path_prefix = os.path.join(self.path_prefix, shortname.replace('*', ''))
         tippet_path = f'{path_prefix}_tippet.png' if self.path_prefix is not None else None
         pav_path = f'{path_prefix}_pav.png' if self.path_prefix is not None else None
         ece_path = f'{path_prefix}_ece.png' if self.path_prefix is not None else None
@@ -295,7 +295,7 @@ def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, prep
     desc_clf = '; '.join(name for name, tr in clf.scorer.steps)
     title = f'{desc}: using common source model: {desc_pre}; {desc_clf}; {ds}; repeats={repeats}'
     LOG.info(title)
-    LOG.info(f'{desc}: number of classes: {np.unique(y).size}')
+    LOG.info(f'{desc}: number of speakers: {np.unique(y).size}')
     LOG.info(f'{desc}: number of instances: {y.size}')
 
     X = preprocessor.fit_transform(X)
@@ -381,15 +381,15 @@ def run(dataset, resultdir):
     exp.parameter('plot', makeplots(resultdir))
 
     exp.parameter('n_frequent_words', 50)
-    exp.addSearch('n_frequent_words', [50, 150, 250])
+    exp.addSearch('n_frequent_words', [50, 150, 250], include_default=False)
 
     exp.parameter('tokens_per_sample', 200)
     exp.addSearch('tokens_per_sample', [200, 800, 1400], include_default=False)
 
     exp.parameter('preprocessor', prep_sum)
 
-    exp.parameter('classifier', ('clf', svc))
-    exp.addSearch('classifier', [('dist', dist), ('svc', svc)])
+    exp.parameter('classifier', ('svc', svc))
+    exp.addSearch('classifier', [('dist', dist), ('svc', svc)], include_default=False)
 
     exp.parameter('calibrator', lir.KDECalibrator())
     exp.parameter('repeats', 10)
