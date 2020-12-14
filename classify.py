@@ -263,8 +263,8 @@ def get_batch_simple(X, y, repeats):
         authors = np.unique(y)
         authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
 
-        X_train, y_train = get_pairs(X, y, authors_train, 1000)
-        X_test, y_test = get_pairs(X, y, authors_test, 1000)
+        X_train, y_train = get_pairs(X, y, authors_train, 2000)
+        X_test, y_test = get_pairs(X, y, authors_test, 2000)
 
         yield X_train, y_train, X_test, y_test
 
@@ -395,9 +395,9 @@ def run(dataset, resultdir):
     exp.parameter('repeats', 10)
 
     try:
-        #exp.runDefaults()
+        exp.runDefaults()
         #exp.runSearch('tokens_per_sample')
-        exp.runFullGrid(['n_frequent_words', 'tokens_per_sample'])
+        # exp.runFullGrid(['n_frequent_words', 'tokens_per_sample', 'classifier'])
     except Exception as e:
         LOG.fatal(e.args[1])
         LOG.fatal(e.args[0])

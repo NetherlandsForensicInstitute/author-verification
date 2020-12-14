@@ -134,9 +134,12 @@ def compile_data_CGN(string):
 
 def get_frequent_words(speakers, n):
     freq = collections.defaultdict(int)
-    for word in speakers.values():
-        for item in word:
-            freq[item] += 1
+    for sp in speakers.values():
+        for word in sp:
+            if re.search('\*', word):
+                continue
+            else:
+                freq[word] += 1
     freq = sorted(freq.items(), key=lambda x: x[1], reverse=True)
     return freq[:n]
 
