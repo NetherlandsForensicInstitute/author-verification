@@ -133,10 +133,20 @@ def compile_data_CGN(string):
 
 
 def get_frequent_words(speakers, n):
+    '''
+    returns a dict with the n most frequent words within the provided data.
+
+    :param speakers: dataset of speakers with the words they used
+    :param n: int how many most frequent words will the output contain
+
+    '''
     freq = collections.defaultdict(int)
-    for word in speakers.values():
-        for item in word:
-            freq[item] += 1
+    for sp in speakers.values():
+        for word in sp:
+            if re.search('\*', word):
+                continue
+            else:
+                freq[word] += 1
     freq = sorted(freq.items(), key=lambda x: x[1], reverse=True)
     return freq[:n]
 

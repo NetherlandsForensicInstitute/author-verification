@@ -5,7 +5,7 @@ import os
 import re
 import string
 
-from nltk import word_tokenize
+from nltk.tokenize import WhitespaceTokenizer
 from tqdm import tqdm
 
 from boilerplate import fileio
@@ -36,7 +36,7 @@ class DataSource:
             store_data(speakers_path, speakers_wordlist)
 
         # extract a list of frequent words
-        wordlist = [ word for word, freq in Function_file.get_frequent_words(speakers_wordlist, self._n_freqwords) ]
+        wordlist = [word for word, freq in Function_file.get_frequent_words(speakers_wordlist, self._n_freqwords)]
 
         # build a dictionary of feature vectors
         speakers = Function_file.filter_texts_size_new(speakers_wordlist, wordlist, self._tokens_per_sample)
@@ -60,26 +60,28 @@ def store_data(path, speakers):
         f.write(json.dumps(speakers))
 
 
-all_words = 0
-
 def read_session(lines):
-    global all_words
-    global test
-    speakers = []
-    test = lines.read()
-    test = re.sub('[0-9]*\.[0-9]*\t', '', test)
-    test = re.sub('[A-Za-z]*\*n','',test)
-    test = re.sub('[A-Za-z]*\*u','',test)
-    test = re.sub('[A-Za-z]*\*a','',test)
-    test = re.sub('[A-Za-z]*\*x','',test)
-    test = test.replace('start\tend\ttext\n', '').replace('.', '').replace('-', ' ').replace('?', '').replace('\n',' ').replace('xxx', '').replace('ggg', '').replace('vvv', '').replace('*v','').replace('*s','')
-    s = test
-    s = s.translate({ord(c): None for c in string.punctuation})
-    all_words += len(word_tokenize(s))
-    # print(word_tokenize(s))
-    speakers.extend(word_tokenize(s))
-    #print('all words in session:', all_words)
-    return speakers
+    '''
+    it returns a list of words within the file
+    :param lines: <class '_io.TextIOWrapper'>
+
+    remember:
+    *v: non-Dutch  words,  *n:  new  non-existing  words,  *s:  street  words,
+    *a: incomplete  words, *u:  distorted  words, *x: unclear word
+    we keep the words with their notation (for *n, *a, *u, and *x) to be able to exclude them when we
+    derive the set of the most frequent words
+    '''
+    lines_to_words = lines.read()
+    lines_to_words = re.sub('[0-9]*\.[0-9]*\t', '', lines_to_words)
+
+    lines_to_words = lines_to_words.replace('start\tend\ttext\n', '').replace('.', '').replace('-', ' ')\
+        .replace('?', '').replace('\n', ' ').replace('xxx', '').replace('ggg', '').replace('vvv', '')\
+        .replace('*v','').replace('*s','')
+    s = lines_to_words.translate({ord(c): None for c in string.punctuation if c != '*'})
+    tk = WhitespaceTokenizer()
+    words = tk.tokenize(s)
+
+    return words
 
 
 def read_list(path):
@@ -97,10 +99,10 @@ def compile_data(index_path):
 
     for filepath, digest in tqdm(list(fileio.load_hashtable(index_path).items()), desc='compiling data'):
         path_str = os.path.basename(filepath)
-        speakerid = path_str[:len(path_str) - 10]# basename path
+        speaker_id = path_str[:len(path_str) - 10]# basename path
         with fileio.sha256_open(os.path.join(basedir, filepath), digest, on_mismatch='warn') as f:
             texts = read_session(f)
-            speakers[speakerid].extend(texts)
+            speakers[speaker_id].extend(texts)
 
     return speakers
 
