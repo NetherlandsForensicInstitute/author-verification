@@ -61,24 +61,27 @@ def store_data(path, speakers):
 
 
 def read_session(lines):
-    speakers = []
-    test = lines.read()
-    test = re.sub('[0-9]*\.[0-9]*\t', '', test)
+    '''
+    it returns a list of words within the file
+    :param lines: <class '_io.TextIOWrapper'>
 
-    # remember:
-    # *v: non-Dutch  words,  *n:  new  non-existing  words,  *s:  street  words,
-    # *a: incomplete  words, *u:  distorted  words, *x: unclear word
-    # we keep the words with their notation (for *n, *a, *u, and *x) to be able to exclude them when we
-    # derive the set of the most frequent words
-    test = test.replace('start\tend\ttext\n', '').replace('.', '').replace('-', ' ').replace('?', '').replace('\n', ' ') \
-        .replace('xxx', '').replace('ggg', '').replace('vvv', '').replace('*v','').replace('*s','')
-    s = test.translate({ord(c): None for c in string.punctuation if c != '*'})
+    remember:
+    *v: non-Dutch  words,  *n:  new  non-existing  words,  *s:  street  words,
+    *a: incomplete  words, *u:  distorted  words, *x: unclear word
+    we keep the words with their notation (for *n, *a, *u, and *x) to be able to exclude them when we
+    derive the set of the most frequent words
+    '''
+    lines_to_words = lines.read()
+    lines_to_words = re.sub('[0-9]*\.[0-9]*\t', '', lines_to_words)
+
+    lines_to_words = lines_to_words.replace('start\tend\ttext\n', '').replace('.', '').replace('-', ' ')\
+        .replace('?', '').replace('\n', ' ').replace('xxx', '').replace('ggg', '').replace('vvv', '')\
+        .replace('*v','').replace('*s','')
+    s = lines_to_words.translate({ord(c): None for c in string.punctuation if c != '*'})
     tk = WhitespaceTokenizer()
-    conv = tk.tokenize(s)
-    if len(conv) > 30:
-        speakers.extend(conv)
+    words = tk.tokenize(s)
 
-    return speakers
+    return words
 
 
 def read_list(path):
@@ -97,7 +100,6 @@ def compile_data(index_path):
     for filepath, digest in tqdm(list(fileio.load_hashtable(index_path).items()), desc='compiling data'):
         path_str = os.path.basename(filepath)
         speaker_id = path_str[:len(path_str) - 10]# basename path
-        print(speaker_id)
         with fileio.sha256_open(os.path.join(basedir, filepath), digest, on_mismatch='warn') as f:
             texts = read_session(f)
             speakers[speaker_id].extend(texts)
