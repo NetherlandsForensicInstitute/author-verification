@@ -247,7 +247,7 @@ class makeplots:
 
         lir.plotting.plot_tippett(lrs, y, savefig=tippet_path, kw_figure=kw_figure)
         lir.plotting.plot_pav(lrs, y, savefig=pav_path, kw_figure=kw_figure)
-        lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
+        # lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
 
 
 def get_pairs(X, y, authors_subset, sample_size):
