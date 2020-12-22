@@ -122,6 +122,8 @@ class GaussianCdfTransformer(sklearn.base.TransformerMixin):
 
 
 GaussParams = collections.namedtuple('StandardParams', ['mean0', 'std0', 'mean1', 'std1'])
+
+
 class GaussianScorer(sklearn.base.BaseEstimator):
     def __init__(self):
         pass
@@ -247,7 +249,7 @@ class makeplots:
 
         lir.plotting.plot_tippett(lrs, y, savefig=tippet_path, kw_figure=kw_figure)
         lir.plotting.plot_pav(lrs, y, savefig=pav_path, kw_figure=kw_figure)
-        # lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
+        lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
 
 
 def get_pairs(X, y, authors_subset, sample_size):
@@ -284,7 +286,7 @@ def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, prep
     :param repeats: int: the number of times the experiment is run
     :return: a CLLR
     """
-    #calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
+    # calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
     clf = lir.CalibratedScorer(classifier, calibrator)
 
     ds = data.DataSource(dataset, n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
@@ -314,13 +316,20 @@ def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, prep
     if plot is not None:
         plot(lrs, y_all, title=title, shortname=desc)
 
-    return lir.metrics.cllr(lrs, y_all)
+    cllr = np.round(lir.metrics.cllr(lrs, y_all), 3)
+    cllrmin = np.round(lir.metrics.cllr_min(lrs, y_all), 3)
+    cllrcal = np.round(cllr - cllrmin, 3)
+    acc = np.round(np.mean((lrs > 1) == y_all), 3)
+    recall = np.round(np.mean(lrs[y_all == 1] > 1), 3)
+    precision = np.round(np.mean(y_all[lrs > 1] == 1), 3)
+
+    return cllr, cllrmin, cllrcal, acc, recall, precision
 
 
 def aggregate_results(results):
     for params, result in results:
         desc = ', '.join(f'{name}={value}' for name, value in params)
-        print(f'{desc}: cllr={result}')
+        print(f'{desc}: cllr, cllr_min, cllr_cal, acc, recall, precision ={result}')
     
 
 def run(dataset, resultdir):
@@ -391,13 +400,13 @@ def run(dataset, resultdir):
     exp.parameter('classifier', ('svc', svc))
     exp.addSearch('classifier', [('dist', dist), ('svc', svc)], include_default=False)
 
-    exp.parameter('calibrator', lir.KDECalibrator())
-    exp.parameter('repeats', 10)
+    exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
+    exp.parameter('repeats', 1)
 
     try:
-        exp.runDefaults()
-        #exp.runSearch('tokens_per_sample')
-        # exp.runFullGrid(['n_frequent_words', 'tokens_per_sample', 'classifier'])
+        # exp.runDefaults()
+        # exp.runSearch('tokens_per_sample')
+        exp.runFullGrid(['n_frequent_words', 'tokens_per_sample', 'classifier'])
     except Exception as e:
         LOG.fatal(e.args[1])
         LOG.fatal(e.args[0])
