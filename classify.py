@@ -122,6 +122,8 @@ class GaussianCdfTransformer(sklearn.base.TransformerMixin):
 
 
 GaussParams = collections.namedtuple('StandardParams', ['mean0', 'std0', 'mean1', 'std1'])
+
+
 class GaussianScorer(sklearn.base.BaseEstimator):
     def __init__(self):
         pass
@@ -233,10 +235,16 @@ class makeplots:
     def __call__(self, lrs, y, title='', shortname=''):
         n_same = int(np.sum(y))
         n_diff = int(y.size-np.sum(y))
+        cllr = np.round(lir.metrics.cllr(lrs, y), 3)
+        cllrmin = np.round(lir.metrics.cllr_min(lrs, y), 3)
+        cllrcal = np.round(cllr - cllrmin, 3)
+        acc = np.round(np.mean((lrs > 1) == y), 3)
+        recall = np.round(np.mean(lrs[y == 1] > 1), 3)
+        precision = np.round(np.mean(y[lrs > 1] == 1), 3)
 
         LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
         LOG.info(f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y==0])))}; {np.exp(np.mean(np.log(lrs[y==1])))}')
-        LOG.info(f'  cllr: {lir.metrics.cllr(lrs, y)}')
+        LOG.info(f'  cllr, cllr_min, cllr_cal, acc, recall, precision: {cllr, cllrmin, cllrcal, acc, recall, precision}')
 
         path_prefix = os.path.join(self.path_prefix, shortname.replace('*', ''))
         tippet_path = f'{path_prefix}_tippet.png' if self.path_prefix is not None else None
@@ -247,7 +255,7 @@ class makeplots:
 
         lir.plotting.plot_tippett(lrs, y, savefig=tippet_path, kw_figure=kw_figure)
         lir.plotting.plot_pav(lrs, y, savefig=pav_path, kw_figure=kw_figure)
-        # lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
+        lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
 
 
 def get_pairs(X, y, authors_subset, sample_size):
@@ -284,7 +292,7 @@ def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, prep
     :param repeats: int: the number of times the experiment is run
     :return: a CLLR
     """
-    #calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
+    # calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
     clf = lir.CalibratedScorer(classifier, calibrator)
 
     ds = data.DataSource(dataset, n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
@@ -314,13 +322,20 @@ def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, prep
     if plot is not None:
         plot(lrs, y_all, title=title, shortname=desc)
 
-    return lir.metrics.cllr(lrs, y_all)
+    cllr = np.round(lir.metrics.cllr(lrs, y_all), 3)
+    cllrmin = np.round(lir.metrics.cllr_min(lrs, y_all), 3)
+    cllrcal = np.round(cllr - cllrmin, 3)
+    acc = np.round(np.mean((lrs > 1) == y_all), 3)
+    recall = np.round(np.mean(lrs[y_all == 1] > 1), 3)
+    precision = np.round(np.mean(y_all[lrs > 1] == 1), 3)
+
+    return cllr, cllrmin, cllrcal, acc, recall, precision
 
 
 def aggregate_results(results):
     for params, result in results:
         desc = ', '.join(f'{name}={value}' for name, value in params)
-        print(f'{desc}: cllr={result}')
+        print(f'{desc}: cllr, cllr_min, cllr_cal, acc, recall, precision ={result}')
     
 
 def run(dataset, resultdir):
@@ -359,8 +374,20 @@ def run(dataset, resultdir):
 
     ### CLASSIFIERS
 
-    dist = sklearn.pipeline.Pipeline([
+    dist_sh = sklearn.pipeline.Pipeline([
             ('dist:shan', VectorDistance(scipy.spatial.distance.jensenshannon)),
+        ])
+
+    dist_eu = sklearn.pipeline.Pipeline([
+            ('dist:eucl', VectorDistance(scipy.spatial.distance.euclidean)),
+        ])
+
+    dist_br = sklearn.pipeline.Pipeline([
+            ('dist:bray', VectorDistance(scipy.spatial.distance.braycurtis)),
+        ])
+
+    dist_ma = sklearn.pipeline.Pipeline([
+            ('dist:man', VectorDistance(scipy.spatial.distance.cityblock)),
         ])
 
     logit = sklearn.pipeline.Pipeline([
@@ -370,33 +397,51 @@ def run(dataset, resultdir):
             ('clf:logit', LogisticRegression(class_weight='balanced')),
         ])
 
-    svc = sklearn.pipeline.Pipeline([
-            ('diff:shan', ShanDistanceVector()),
-            ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
+    logit_br = sklearn.pipeline.Pipeline([
+            ('bray', BrayDistance()),
+            ('clf:logit', LogisticRegression(class_weight='balanced')),
         ])
+
+    svc = sklearn.pipeline.Pipeline([
+        ('diff:shan', ShanDistanceVector()),
+        ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
+        ])
+
+    svc_br = sklearn.pipeline.Pipeline([
+        ('diff:bray', BrayDistance()),
+        ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
+        ])
+
+    svc_ma = sklearn.pipeline.Pipeline([
+        ('diff:abs', transformers.AbsDiffTransformer()),
+        ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
+        ])
+
 
     exp = experiments.Evaluation(evaluate_samesource, aggregate_results)
 
     exp.parameter('dataset', dataset)
     exp.parameter('plot', makeplots(resultdir))
 
-    exp.parameter('n_frequent_words', 50)
-    exp.addSearch('n_frequent_words', [50, 150, 250], include_default=False)
+    exp.parameter('n_frequent_words', 200)
+    exp.addSearch('n_frequent_words', [50, 150, 200], include_default=False)
 
-    exp.parameter('tokens_per_sample', 200)
-    exp.addSearch('tokens_per_sample', [200, 800, 1400], include_default=False)
+    exp.parameter('tokens_per_sample', 500)
+    exp.addSearch('tokens_per_sample', [200, 500, 800, 1400], include_default=False)
 
-    exp.parameter('preprocessor', prep_sum)
+    exp.parameter('preprocessor', prep_gauss)
 
-    exp.parameter('classifier', ('svc', svc))
-    exp.addSearch('classifier', [('dist', dist), ('svc', svc)], include_default=False)
+    exp.parameter('classifier', ('bray_svm', svc_br))
+    exp.addSearch('classifier', [('bray_svm', svc_br), ('man_svm', svc_ma),
+                                 ('bray_logit', logit_br)], include_default=False)
+    # exp.addSearch('classifier', [('dist', dist), ('svc', svc)], include_default=False)
 
-    exp.parameter('calibrator', lir.KDECalibrator())
+    exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
     exp.parameter('repeats', 10)
 
     try:
         exp.runDefaults()
-        #exp.runSearch('tokens_per_sample')
+        # exp.runSearch('n_frequent_words', 'tokens_per_sample')
         # exp.runFullGrid(['n_frequent_words', 'tokens_per_sample', 'classifier'])
     except Exception as e:
         LOG.fatal(e.args[1])
