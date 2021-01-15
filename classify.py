@@ -26,7 +26,6 @@ from tqdm import tqdm
 from authorship import data
 from authorship import experiments
 
-
 DEFAULT_LOGLEVEL = logging.WARNING
 LOG = logging.getLogger(__name__)
 
@@ -70,11 +69,12 @@ class KdeCdfTransformer(sklearn.base.TransformerMixin):
 
         self._kernels = []
         for i in range(X.shape[1]):
-            feature_values = X[:,i]
+            feature_values = X[:, i]
             lower, upper = self.get_range(feature_values)
 
             kernel = sklearn.neighbors.KernelDensity(kernel='gaussian', bandwidth=.1).fit(feature_values.reshape(-1, 1))
-            precomputed_values = np.arange(self._resolution+1).reshape(-1, 1) / self._resolution * (upper-lower) + lower
+            precomputed_values = np.arange(self._resolution + 1).reshape(-1, 1) / self._resolution * (
+                        upper - lower) + lower
             density = np.exp(kernel.score_samples(precomputed_values))
             cumulative_density = np.cumsum(density)
             cumulative_density = cumulative_density / cumulative_density[-1]
@@ -95,10 +95,10 @@ class KdeCdfTransformer(sklearn.base.TransformerMixin):
 
         features = []
         for i in range(X.shape[1]):
-            feature_values = X[:,i]
+            feature_values = X[:, i]
             lower, upper = self.get_range(feature_values)
 
-            percentiles = self._kernels[i][((feature_values - lower) / (upper-lower) * self._resolution).astype(int)]
+            percentiles = self._kernels[i][((feature_values - lower) / (upper - lower) * self._resolution).astype(int)]
             features.append(percentiles)
 
         return np.stack(features, axis=1)
@@ -117,7 +117,7 @@ class GaussianCdfTransformer(sklearn.base.TransformerMixin):
 
     def transform(self, X):
         assert len(X.shape) == 2
-        X = X[:,self._valid_features]
+        X = X[:, self._valid_features]
         return scipy.stats.norm.cdf(X, self._mean, self._std)
 
 
@@ -129,13 +129,14 @@ class GaussianScorer(sklearn.base.BaseEstimator):
         pass
 
     def fit(self, X, y):
-        assert np.all(np.arange(np.max(y)+1) == np.unique(y)), 'classes must be numbered 0..n and all classes must occur at least once'
+        assert np.all(np.arange(np.max(y) + 1) == np.unique(
+            y)), 'classes must be numbered 0..n and all classes must occur at least once'
 
         self._classes = np.unique(y)
         self._models = {}
         for cls in self._classes:
-            X0 = X[y!=cls]
-            X1 = X[y==cls]
+            X0 = X[y != cls]
+            X1 = X[y == cls]
 
             mean0 = np.mean(X0, axis=0)
             std0 = np.std(X0, axis=0)
@@ -162,9 +163,10 @@ class GaussianScorer(sklearn.base.BaseEstimator):
             p0 = scipy.stats.norm.pdf(X, params.mean0, params.std0)
             p1 = scipy.stats.norm.pdf(X, params.mean1, params.std1)
             with np.errstate(divide='ignore'):
-                p.append(p1/(p0+p1))
+                p.append(p1 / (p0 + p1))
 
-        return np.prod(lir.to_odds(np.array(p)), axis=2).T  # multiply the odds over categories (assume conditional independence)
+        return np.prod(lir.to_odds(np.array(p)),
+                       axis=2).T  # multiply the odds over categories (assume conditional independence)
 
 
 class BrayDistance(sklearn.base.TransformerMixin):
@@ -175,8 +177,8 @@ class BrayDistance(sklearn.base.TransformerMixin):
         assert len(X.shape) == 3
         assert X.shape[2] == 2
 
-        left = X[:,:,0]
-        right = X[:,:,1]
+        left = X[:, :, 0]
+        right = X[:, :, 1]
 
         return np.abs(right - left) / (np.abs(right + left) + 1)
 
@@ -189,8 +191,8 @@ class ShanDistanceVector(sklearn.base.TransformerMixin):
         assert len(X.shape) == 3
         assert X.shape[2] == 2
 
-        p = X[:,:,0]
-        q = X[:,:,1]
+        p = X[:, :, 0]
+        q = X[:, :, 1]
         m = (p + q) / 2.0
 
         left = scipy.spatial.distance.rel_entr(p, m)
@@ -199,7 +201,8 @@ class ShanDistanceVector(sklearn.base.TransformerMixin):
         try:
             result = np.sqrt((left + right) / 2.)
         except:
-            raise ValueError('illegal input for ShanDistanceVector (relative entropy may be negative if input contains values > 1)')
+            raise ValueError(
+                'illegal input for ShanDistanceVector (relative entropy may be negative if input contains values > 1)')
 
         assert X.shape[0:2] == result.shape
         return result
@@ -218,14 +221,14 @@ class VectorDistance(sklearn.base.TransformerMixin):
 
         distance_by_pair = []
         for z in range(X.shape[0]):
-            dist = self._dfunc(X[z,:,0], X[z,:,1])
+            dist = self._dfunc(X[z, :, 0], X[z, :, 1])
             distance_by_pair.append(dist)
 
         return np.array(distance_by_pair).reshape(-1, 1)
 
     def predict_proba(self, X):
         p0 = self.transform(X)
-        return np.stack([p0, 1/p0], axis=1)
+        return np.stack([p0, 1 / p0], axis=1)
 
 
 class makeplots:
@@ -234,7 +237,7 @@ class makeplots:
 
     def __call__(self, lrs, y, title='', shortname=''):
         n_same = int(np.sum(y))
-        n_diff = int(y.size-np.sum(y))
+        n_diff = int(y.size - np.sum(y))
         cllr = np.round(lir.metrics.cllr(lrs, y), 3)
         cllrmin = np.round(lir.metrics.cllr_min(lrs, y), 3)
         cllrcal = np.round(cllr - cllrmin, 3)
@@ -243,8 +246,10 @@ class makeplots:
         precision = np.round(np.mean(y[lrs > 1] == 1), 3)
 
         LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
-        LOG.info(f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y==0])))}; {np.exp(np.mean(np.log(lrs[y==1])))}')
-        LOG.info(f'  cllr, cllr_min, cllr_cal, acc, recall, precision: {cllr, cllrmin, cllrcal, acc, recall, precision}')
+        LOG.info(
+            f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y == 0])))}; {np.exp(np.mean(np.log(lrs[y == 1])))}')
+        LOG.info(
+            f'  cllr, cllr_min, cllr_cal, acc, recall, precision: {cllr, cllrmin, cllrcal, acc, recall, precision}')
 
         path_prefix = os.path.join(self.path_prefix, shortname.replace('*', ''))
         tippet_path = f'{path_prefix}_tippet.png' if self.path_prefix is not None else None
@@ -263,7 +268,8 @@ def get_pairs(X, y, authors_subset, sample_size):
     y_subset = y[np.isin(y, authors_subset)]
 
     # pair instances: same source and different source
-    return transformers.InstancePairing(same_source_limit=sample_size//2, different_source_limit=sample_size//2).transform(X_subset, y_subset)
+    return transformers.InstancePairing(same_source_limit=sample_size // 2,
+                                        different_source_limit=sample_size // 2).transform(X_subset, y_subset)
 
 
 def get_batch_simple(X, y, repeats):
@@ -271,13 +277,15 @@ def get_batch_simple(X, y, repeats):
         authors = np.unique(y)
         authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
 
-        X_train, y_train = get_pairs(X, y, authors_train, 2000)
-        X_test, y_test = get_pairs(X, y, authors_test, 2000)
+        n_max = 2 * 2000
+        X_train, y_train = get_pairs(X, y, authors_train, n_max)
+        X_test, y_test = get_pairs(X, y, authors_test, n_max)
 
         yield X_train, y_train, X_test, y_test
 
 
-def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, preprocessor, classifier, calibrator, plot=None, repeats=1):
+def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, preprocessor, classifier, calibrator,
+                        plot=None, repeats=1):
     """
     Run an experiment with the parameters provided.
 
@@ -329,94 +337,80 @@ def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, prep
     recall = np.round(np.mean(lrs[y_all == 1] > 1), 3)
     precision = np.round(np.mean(y_all[lrs > 1] == 1), 3)
 
-    return cllr, cllrmin, cllrcal, acc, recall, precision
+    return cllr, cllrmin, cllrcal, acc, recall, precision, lrs
 
 
 def aggregate_results(results):
+    print("hjdgkabgjkd")
     for params, result in results:
         desc = ', '.join(f'{name}={value}' for name, value in params)
-        print(f'{desc}: cllr, cllr_min, cllr_cal, acc, recall, precision ={result}')
-    
+        print(f'{desc}: cllr, cllr_min, cllr_cal, acc, recall, precision ={result[:6]}')
+
 
 def run(dataset, resultdir):
     ### PREPROCESSORS
 
     prep_none = sklearn.pipeline.Pipeline([
-            ('scale:none', None),
-            ('pop:none', None),
-        ])
+        ('scale:none', None),
+        ('pop:none', None),
+    ])
 
     prep_std = sklearn.pipeline.Pipeline([
-            ('scale:standard', sklearn.preprocessing.StandardScaler()),
-            ('pop:none', None),
-        ])
+        ('scale:standard', sklearn.preprocessing.StandardScaler()),
+        ('pop:none', None),
+    ])
 
     prep_norm = sklearn.pipeline.Pipeline([
-            ('scale:norm', sklearn.preprocessing.Normalizer()),
-            ('pop:none', None),
-        ])
+        ('scale:norm', sklearn.preprocessing.Normalizer()),
+        ('pop:none', None),
+    ])
 
     prep_sum = sklearn.pipeline.Pipeline([
-            ('scale:sum', sklearn.preprocessing.Normalizer(norm='l1')),
-            ('pop:none', None),
-        ])
+        ('scale:sum', sklearn.preprocessing.Normalizer(norm='l1')),
+        ('pop:none', None),
+    ])
 
     prep_gauss = sklearn.pipeline.Pipeline([
-            ('scale:standard', sklearn.preprocessing.StandardScaler()),
-            ('pop:gauss', GaussianCdfTransformer()),  # cumulative density function for each feature
-            #('pop:gauss', sklearn.preprocessing.QuantileTransformer()),  # cumulative density function for each feature
-        ])
+        ('pop:gauss', GaussianCdfTransformer()),  # cumulative density function for each feature
+        # ('pop:gauss', sklearn.preprocessing.QuantileTransformer()),  # cumulative density function for each feature
+    ])
 
     prep_kde = sklearn.pipeline.Pipeline([
-            ('scale:standard', sklearn.preprocessing.StandardScaler()),
-            ('pop:kde', KdeCdfTransformer()),  # cumulative density function for each feature
-        ])
+        ('scale:standard', sklearn.preprocessing.StandardScaler()),
+        ('pop:kde', KdeCdfTransformer()),  # cumulative density function for each feature
+    ])
 
     ### CLASSIFIERS
 
     dist_sh = sklearn.pipeline.Pipeline([
-            ('dist:shan', VectorDistance(scipy.spatial.distance.jensenshannon)),
-        ])
-
-    dist_eu = sklearn.pipeline.Pipeline([
-            ('dist:eucl', VectorDistance(scipy.spatial.distance.euclidean)),
-        ])
+        ('dist:shan', VectorDistance(scipy.spatial.distance.jensenshannon)),
+    ])
 
     dist_br = sklearn.pipeline.Pipeline([
-            ('dist:bray', VectorDistance(scipy.spatial.distance.braycurtis)),
-        ])
+        ('dist:bray', VectorDistance(scipy.spatial.distance.braycurtis)),
+    ])
 
     dist_ma = sklearn.pipeline.Pipeline([
-            ('dist:man', VectorDistance(scipy.spatial.distance.cityblock)),
-        ])
+        ('dist:man', VectorDistance(scipy.spatial.distance.cityblock)),
+    ])
 
     logit = sklearn.pipeline.Pipeline([
-            ('diff:abs', transformers.AbsDiffTransformer()),
-            #('shan', ShanDistance()),
-            #('bray', BrayDistance()),
-            ('clf:logit', LogisticRegression(class_weight='balanced')),
-        ])
+        ('diff:abs', transformers.AbsDiffTransformer()),
+        # ('shan', ShanDistance()),
+        ('clf:logit', LogisticRegression(max_iter=600, class_weight='balanced')),
+    ])
 
     logit_br = sklearn.pipeline.Pipeline([
-            ('bray', BrayDistance()),
-            ('clf:logit', LogisticRegression(class_weight='balanced')),
-        ])
+        ('bray', BrayDistance()),
+        ('clf:logit', LogisticRegression(class_weight='balanced')),
+    ])
 
     svc = sklearn.pipeline.Pipeline([
-        ('diff:shan', ShanDistanceVector()),
-        ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
-        ])
-
-    svc_br = sklearn.pipeline.Pipeline([
-        ('diff:bray', BrayDistance()),
-        ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
-        ])
-
-    svc_ma = sklearn.pipeline.Pipeline([
         ('diff:abs', transformers.AbsDiffTransformer()),
+        # ('diff:shan', ShanDistanceVector()),
+        # ('diff:bray', BrayDistance()),
         ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
-        ])
-
+    ])
 
     exp = experiments.Evaluation(evaluate_samesource, aggregate_results)
 
@@ -424,25 +418,26 @@ def run(dataset, resultdir):
     exp.parameter('plot', makeplots(resultdir))
 
     exp.parameter('n_frequent_words', 200)
-    exp.addSearch('n_frequent_words', [50, 150, 200], include_default=False)
+    exp.addSearch('n_frequent_words', [10, 50, 100, 200, 300, 400, 500], include_default=False)
 
-    exp.parameter('tokens_per_sample', 500)
-    exp.addSearch('tokens_per_sample', [200, 500, 800, 1400], include_default=False)
+    exp.parameter('tokens_per_sample', 600)
+    exp.addSearch('tokens_per_sample', [200, 400, 600, 800, 1000, 1200], include_default=False)
 
     exp.parameter('preprocessor', prep_gauss)
 
-    exp.parameter('classifier', ('bray_svm', svc_br))
-    exp.addSearch('classifier', [('bray_svm', svc_br), ('man_svm', svc_ma),
+    # exp.parameter('classifier', ('dist_man', dist_ma))
+    exp.parameter('classifier', ('bray_logit', logit_br))
+    exp.addSearch('classifier', [('dist_man', dist_ma), ('dist_bray', dist_br), ('man_logit', logit),
                                  ('bray_logit', logit_br)], include_default=False)
-    # exp.addSearch('classifier', [('dist', dist), ('svc', svc)], include_default=False)
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
-    exp.parameter('repeats', 10)
+    exp.parameter('repeats', 2)
 
     try:
-        exp.runDefaults()
-        # exp.runSearch('n_frequent_words', 'tokens_per_sample')
-        # exp.runFullGrid(['n_frequent_words', 'tokens_per_sample', 'classifier'])
+        # exp.runDefaults()
+        exp.runSearch('tokens_per_sample')
+        # exp.runFullGrid(['tokens_per_sample', 'classifier'])
+
     except Exception as e:
         LOG.fatal(e.args[1])
         LOG.fatal(e.args[0])
@@ -458,8 +453,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', help='increases verbosity', action='count', default=0)
     parser.add_argument('-q', help='decreases verbosity', action='count', default=0)
-    parser.add_argument('--data', metavar='FILENAME', help=f'dataset to be used; index file as generated by `sha256sum` (default: {config.data})', default=config.data)
-    parser.add_argument('--output-directory', '-o', metavar='DIRNAME', help=f'path to generated output files (default: {config.resultdir})', default=config.resultdir)
+    parser.add_argument('--data', metavar='FILENAME',
+                        help=f'dataset to be used; index file as generated by `sha256sum` (default: {config.data})',
+                        default=config.data)
+    parser.add_argument('--output-directory', '-o', metavar='DIRNAME',
+                        help=f'path to generated output files (default: {config.resultdir})', default=config.resultdir)
     args = parser.parse_args()
 
     setupLogging(args)
