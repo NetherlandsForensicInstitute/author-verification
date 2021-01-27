@@ -280,9 +280,9 @@ def get_batch_simple(X, y, repeats, max_n_of_pairs_per_class):
         authors = np.unique(y)
         authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
 
-        n_max = 2 * max_n_of_pairs_per_class
-        X_train, y_train = get_pairs(X, y, authors_train, n_max)
-        X_test, y_test = get_pairs(X, y, authors_test, n_max)
+        sample_size = 2 * max_n_of_pairs_per_class
+        X_train, y_train = get_pairs(X, y, authors_train, sample_size)
+        X_test, y_test = get_pairs(X, y, authors_test, sample_size)
 
         yield X_train, y_train, X_test, y_test
 
