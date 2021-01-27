@@ -7,12 +7,14 @@ import os
 import sys
 import traceback
 import warnings
+from functools import partial
 
 import confidence
 import lir
 from lir import transformers
 from matplotlib import pyplot as plt
 import numpy as np
+import json
 import scipy.spatial
 import scipy.stats
 from sklearn.linear_model import LogisticRegression
@@ -244,6 +246,7 @@ class makeplots:
         acc = np.round(np.mean((lrs > 1) == y), 3)
         recall = np.round(np.mean(lrs[y == 1] > 1), 3)
         precision = np.round(np.mean(y[lrs > 1] == 1), 3)
+        tnr = np.round(np.mean(lrs[y == 0] < 1), 3)
 
         LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
         LOG.info(
@@ -272,19 +275,19 @@ def get_pairs(X, y, authors_subset, sample_size):
                                         different_source_limit=sample_size // 2).transform(X_subset, y_subset)
 
 
-def get_batch_simple(X, y, repeats):
+def get_batch_simple(X, y, repeats, max_n_of_pairs_per_class):
     for i in range(repeats):
         authors = np.unique(y)
         authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
 
-        n_max = 2 * 2000
+        n_max = 2 * max_n_of_pairs_per_class
         X_train, y_train = get_pairs(X, y, authors_train, n_max)
         X_test, y_test = get_pairs(X, y, authors_test, n_max)
 
         yield X_train, y_train, X_test, y_test
 
 
-def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, preprocessor, classifier, calibrator,
+def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, max_n_of_pairs_per_class, preprocessor, classifier, calibrator,
                         plot=None, repeats=1):
     """
     Run an experiment with the parameters provided.
@@ -318,7 +321,7 @@ def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, prep
 
     lrs = []
     y_all = []
-    for X_train, y_train, X_test, y_test in tqdm(get_batch_simple(X, y, repeats)):
+    for X_train, y_train, X_test, y_test in tqdm(get_batch_simple(X, y, repeats, max_n_of_pairs_per_class)):
         # fit a classifier and calculate LRs
         clf.fit(X_train, y_train)
         lrs.append(clf.predict_lr(X_test))
@@ -337,14 +340,22 @@ def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, prep
     recall = np.round(np.mean(lrs[y_all == 1] > 1), 3)
     precision = np.round(np.mean(y_all[lrs > 1] == 1), 3)
 
-    return cllr, cllrmin, cllrcal, acc, recall, precision, lrs
+    return cllr, cllrmin, cllrcal, acc, recall, precision, lrs, y_all
 
 
-def aggregate_results(results):
-    print("hjdgkabgjkd")
+def aggregate_results(dir, results):
+
     for params, result in results:
         desc = ', '.join(f'{name}={value}' for name, value in params)
         print(f'{desc}: cllr, cllr_min, cllr_cal, acc, recall, precision ={result[:6]}')
+
+        res = {'param': desc, 'metrics': result[:6], 'lrs': result[6].tolist(), 'y': result[7].tolist()}
+
+        path_prefix = os.path.join(dir, desc.replace('*', ''))
+        lrs_path = f'{path_prefix}.txt'
+
+        with open(lrs_path, 'w', encoding='utf-8') as f:
+            f.write(json.dumps(res, indent=4))
 
 
 def run(dataset, resultdir):
@@ -412,7 +423,7 @@ def run(dataset, resultdir):
         ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
     ])
 
-    exp = experiments.Evaluation(evaluate_samesource, aggregate_results)
+    exp = experiments.Evaluation(evaluate_samesource, partial(aggregate_results, resultdir))
 
     exp.parameter('dataset', dataset)
     exp.parameter('plot', makeplots(resultdir))
@@ -422,6 +433,9 @@ def run(dataset, resultdir):
 
     exp.parameter('tokens_per_sample', 600)
     exp.addSearch('tokens_per_sample', [200, 400, 600, 800, 1000, 1200], include_default=False)
+
+    exp.parameter('max_n_of_pairs_per_class', 2000)
+    exp.addSearch('max_n_of_pairs_per_class', [500, 1000, 2000], include_default=False)
 
     exp.parameter('preprocessor', prep_gauss)
 
