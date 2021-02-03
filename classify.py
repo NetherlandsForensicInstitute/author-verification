@@ -339,8 +339,11 @@ def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, max_
     acc = np.round(np.mean((lrs > 1) == y_all), 3)
     recall = np.round(np.mean(lrs[y_all == 1] > 1), 3)
     precision = np.round(np.mean(y_all[lrs > 1] == 1), 3)
+    Results = collections.namedtuple('Results', ['cllr', 'cllrmin', 'cllrcal', 'accuracy', 'recall', 'precision', 'lrs',
+                                                 'label'])
 
-    return cllr, cllrmin, cllrcal, acc, recall, precision, lrs, y_all
+
+    return Results(cllr, cllrmin, cllrcal, acc, recall, precision, lrs, y_all)
 
 
 def aggregate_results(dir, results):
@@ -349,7 +352,7 @@ def aggregate_results(dir, results):
         desc = ', '.join(f'{name}={value}' for name, value in params)
         print(f'{desc}: cllr, cllr_min, cllr_cal, acc, recall, precision ={result[:6]}')
 
-        res = {'param': desc, 'metrics': result[:6], 'lrs': result[6].tolist(), 'y': result[7].tolist()}
+        res = {'param': desc, 'metrics': result[:6], 'lrs': result.lrs.tolist(), 'y': result.label.tolist()}
 
         path_prefix = os.path.join(dir, desc.replace('*', ''))
         lrs_path = f'{path_prefix}.txt'
@@ -445,7 +448,7 @@ def run(dataset, resultdir):
                                  ('bray_logit', logit_br)], include_default=False)
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
-    exp.parameter('repeats', 2)
+    exp.parameter('repeats', 10)
 
     try:
         # exp.runDefaults()
