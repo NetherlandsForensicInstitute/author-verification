@@ -24,6 +24,7 @@ import sklearn.pipeline
 import sklearn.preprocessing
 import sklearn.svm
 from tqdm import tqdm
+from sklearn.metrics import roc_curve
 
 from authorship import data
 from authorship import experiments
@@ -241,18 +242,13 @@ class makeplots:
         n_same = int(np.sum(y))
         n_diff = int(y.size - np.sum(y))
         cllr = np.round(lir.metrics.cllr(lrs, y), 3)
-        cllrmin = np.round(lir.metrics.cllr_min(lrs, y), 3)
-        cllrcal = np.round(cllr - cllrmin, 3)
         acc = np.round(np.mean((lrs > 1) == y), 3)
-        recall = np.round(np.mean(lrs[y == 1] > 1), 3)
-        precision = np.round(np.mean(y[lrs > 1] == 1), 3)
-        tnr = np.round(np.mean(lrs[y == 0] < 1), 3)
 
         LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
         LOG.info(
             f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y == 0])))}; {np.exp(np.mean(np.log(lrs[y == 1])))}')
         LOG.info(
-            f'  cllr, cllr_min, cllr_cal, acc, recall, precision: {cllr, cllrmin, cllrcal, acc, recall, precision}')
+            f'  cllr, acc: {cllr, acc}')
 
         path_prefix = os.path.join(self.path_prefix, shortname.replace('*', ''))
         tippet_path = f'{path_prefix}_tippet.png' if self.path_prefix is not None else None
@@ -339,22 +335,29 @@ def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, max_
     acc = np.round(np.mean((lrs > 1) == y_all), 3)
     recall = np.round(np.mean(lrs[y_all == 1] > 1), 3)
     precision = np.round(np.mean(y_all[lrs > 1] == 1), 3)
-    Results = collections.namedtuple('Results', ['cllr', 'cllrmin', 'cllrcal', 'accuracy', 'recall', 'precision', 'lrs',
-                                                 'label'])
+    tnr = np.round(np.mean(lrs[y_all == 0] < 1), 3)
+    mean_logLR_diff = np.round(np.log(1 / np.exp(np.mean(-np.log(lrs[y_all == 0])))), 3)
+    mean_logLR_same = np.round(np.log(np.exp(np.mean(np.log(lrs[y_all == 1])))), 3)
+
+    fpr, tpr, threshold = roc_curve(list(y_all), list(lrs), pos_label=1)
+    fnr = 1 - tpr
+    eer = np.round(fpr[np.nanargmin(np.absolute((fnr - fpr)))], 3)
+
+    Metrics = collections.namedtuple('Metrics', ['cllr', 'cllrmin', 'cllrcal', 'accuracy', 'eer', 'recall', 'tnr',
+                                                 'precision', 'mean_logLR_diff', 'mean_logLR_same'])
+
+    return Metrics(cllr, cllrmin, cllrcal, acc, eer, recall, tnr, precision, mean_logLR_diff, mean_logLR_same), lrs, y_all
 
 
-    return Results(cllr, cllrmin, cllrcal, acc, recall, precision, lrs, y_all)
-
-
-def aggregate_results(dir, results):
+def aggregate_results(out_dir, results):
 
     for params, result in results:
         desc = ', '.join(f'{name}={value}' for name, value in params)
-        print(f'{desc}: cllr, cllr_min, cllr_cal, acc, recall, precision ={result[:6]}')
+        print(f'{desc}: {result[0]}')
 
-        res = {'param': desc, 'metrics': result[:6], 'lrs': result.lrs.tolist(), 'y': result.label.tolist()}
+        res = {'param': desc, 'metrics': result[0], 'lrs': result[1].tolist(), 'y': result[2].tolist()}
 
-        path_prefix = os.path.join(dir, desc.replace('*', ''))
+        path_prefix = os.path.join(out_dir, desc.replace('*', ''))
         lrs_path = f'{path_prefix}.txt'
 
         with open(lrs_path, 'w', encoding='utf-8') as f:
