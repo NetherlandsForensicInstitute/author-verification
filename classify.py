@@ -241,8 +241,8 @@ class makeplots:
     def __call__(self, lrs, y, title='', shortname=''):
         n_same = int(np.sum(y))
         n_diff = int(y.size - np.sum(y))
-        cllr = np.round(lir.metrics.cllr(lrs, y), 3)
-        acc = np.round(np.mean((lrs > 1) == y), 3)
+        cllr = lir.metrics.cllr(lrs, y)
+        acc = np.mean((lrs > 1) == y)
 
         LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
         LOG.info(
@@ -329,19 +329,19 @@ def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, max_
     if plot is not None:
         plot(lrs, y_all, title=title, shortname=desc)
 
-    cllr = np.round(lir.metrics.cllr(lrs, y_all), 3)
-    cllrmin = np.round(lir.metrics.cllr_min(lrs, y_all), 3)
-    cllrcal = np.round(cllr - cllrmin, 3)
-    acc = np.round(np.mean((lrs > 1) == y_all), 3)
-    recall = np.round(np.mean(lrs[y_all == 1] > 1), 3)
-    precision = np.round(np.mean(y_all[lrs > 1] == 1), 3)
-    tnr = np.round(np.mean(lrs[y_all == 0] < 1), 3)
-    mean_logLR_diff = np.round(np.log(1 / np.exp(np.mean(-np.log(lrs[y_all == 0])))), 3)
-    mean_logLR_same = np.round(np.log(np.exp(np.mean(np.log(lrs[y_all == 1])))), 3)
+    cllr = lir.metrics.cllr(lrs, y_all)
+    cllrmin = lir.metrics.cllr_min(lrs, y_all)
+    cllrcal = cllr - cllrmin
+    acc = np.mean((lrs > 1) == y_all)
+    recall = np.mean(lrs[y_all == 1] > 1) # true positive rate
+    precision = np.mean(y_all[lrs > 1] == 1)
+    tnr = np.mean(lrs[y_all == 0] < 1) # true negative rate
+    mean_logLR_diff = np.mean(np.log(lrs[y_all == 0]))
+    mean_logLR_same = np.mean(np.log(lrs[y_all == 1]))
 
     fpr, tpr, threshold = roc_curve(list(y_all), list(lrs), pos_label=1)
     fnr = 1 - tpr
-    eer = np.round(fpr[np.nanargmin(np.absolute((fnr - fpr)))], 3)
+    eer = fpr[np.nanargmin(np.absolute((fnr - fpr)))]
 
     Metrics = collections.namedtuple('Metrics', ['cllr', 'cllrmin', 'cllrcal', 'accuracy', 'eer', 'recall', 'tnr',
                                                  'precision', 'mean_logLR_diff', 'mean_logLR_same'])
@@ -353,7 +353,7 @@ def aggregate_results(out_dir, results):
 
     for params, result in results:
         desc = ', '.join(f'{name}={value}' for name, value in params)
-        print(f'{desc}: {result[0]}')
+        print(f'{desc}: {result[0]._fields} = {list(np.round(result[0], 3))}')
 
         res = {'param': desc, 'metrics': result[0], 'lrs': result[1].tolist(), 'y': result[2].tolist()}
 
