@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import re
-import string
 import numpy as np
 
 from nltk.tokenize import WhitespaceTokenizer
@@ -42,9 +41,9 @@ class DataSource:
         speakers_cov = filter_texts_size(speakers_wordlist, wordlist)
 
         # convert to X, y
-        X, y = to_vector_size(speakers_cov)
+        X, y, conv_ids = to_vector_size(speakers_cov)
 
-        return X, y
+        return X, y, conv_ids
 
     def __repr__(self):
         return f'data(freqwords={self._n_freqwords})'
@@ -100,6 +99,9 @@ def read_session(lines):
     """
     lines_to_words = lines.read()
     lines_to_words = re.sub('[0-9]*\.[0-9]*\t', '', lines_to_words)
+    lines_to_words = re.sub('[A-Za-z]*\*u', '', lines_to_words)
+    lines_to_words = re.sub('[A-Za-z]*\*a', '', lines_to_words)
+    lines_to_words = re.sub('[A-Za-z]*\*x', '', lines_to_words)
 
     lines_to_words = lines_to_words.replace('start\tend\ttext\n', '').replace('.', '').replace('-', ' ')\
         .replace('?', '').replace('\n', ' ').replace('xxx', '').replace('ggg', '').replace('vvv', '')\
@@ -166,26 +168,27 @@ def filter_texts_size(speakerdict, wordlist):
     filtered = {}
     for label, texts in speakerdict.items():
         LOG.debug('filter in subset {}'.format(label))
-        # n_words = len(texts)
         for f in filters:
             texts = list(f(texts))
         if len(texts) != 0:
-            filtered[label] = texts  # [100*i/n_words for i in texts]
+            filtered[label] = texts  # [100*i/len(texts) for i in texts]
 
     return filtered
 
 
 def to_vector_size(speakers):
     """
-    returns a matrix where each row correspond to a conversation by a speaker, and vector that holds the id of the speaker
+    returns a matrix where each row correspond to a conversation by a speaker, a vector that holds the id of the
+    speaker, and a vector that holds the id of the conversation
 
     :param speakers: the output of filter_texts_size
     """
-    labels = []
     features = []
-    for label, texts in speakers.items():
-        speaker_id = label[2:(len(label)-2)]
-        labels.append(speaker_id)
+    speakers_id = []
+    labels = []
+    for conv_id, texts in speakers.items():
         features.append(texts)
+        speakers_id.append(conv_id[2:(len(conv_id)-2)])
+        labels.append(conv_id)
 
-    return np.concatenate(features),  np.array(labels)
+    return np.concatenate(features),  np.array(speakers_id), np.array(labels)
