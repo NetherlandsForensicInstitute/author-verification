@@ -303,10 +303,10 @@ def evaluate_samesource(desc, dataset, n_frequent_words, max_n_of_pairs_per_clas
     clf = lir.CalibratedScorer(classifier, calibrator)
 
     ds = data.DataSource(dataset, n_frequent_words=n_frequent_words)
-    X, y, conv_ids = ds.get()
-    voc_ds = vocalize_data.VocalizeDataSource('frida\\vocalize_results\\Output_1-21-2020 1-10-07 PM_2019A-XVector-Adaptable-20F-512-OCMS-29May2019_XVector - PLDA_baseline_allvsall.csv',
-                                              conversation_ids=conv_ids)
+    X, y = ds.get()
+    voc_ds = vocalize_data.VocalizeDataSource('frida\\vocalize_results\\Output_1-21-2020 1-10-07 PM_2019A-XVector-Adaptable-20F-512-OCMS-29May2019_XVector - PLDA_baseline_allvsall.csv')
     X_voc = voc_ds.get()
+    
     assert X.shape[0] > 0
 
     desc_pre = '; '.join(name for name, tr in preprocessor.steps)

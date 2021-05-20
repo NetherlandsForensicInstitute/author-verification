@@ -4,8 +4,7 @@ import pandas as pd
 
 class VocalizeDataSource:
     # specific on the vocalize output for frida
-    def __init__(self, voc_data, conversation_ids):
-        self._conversation_ids = conversation_ids
+    def __init__(self, voc_data):
         self._voc_data = voc_data
 
     def get(self):
@@ -25,10 +24,6 @@ class VocalizeDataSource:
         df = df[df['SP_1'].str.endswith('5') & df['SP_2'].str.endswith('5')]
 
         df[['SP_1', 'SP_2']] = df[['SP_1', 'SP_2']] \
-            .apply(
-            lambda x: x.str.extract(conv_pattern[:(len(conv_pattern) - 7)] + ")", expand=False).str.replace("-", ""))
-
-        # to check it with different voc output
-        df = df[df['SP_1'].isin(self._conversation_ids) & df['SP_2'].isin(self._conversation_ids)]
+            .apply(lambda x: x.str.extract(conv_pattern[:(len(conv_pattern) - 7)] + ")", expand=False).str.replace("-", ""))
 
         return df
