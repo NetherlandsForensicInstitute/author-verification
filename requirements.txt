@@ -6,5 +6,6 @@ nltk
 scipy
 sklearn
 tqdm
+pandas
 
 scikit-learn
