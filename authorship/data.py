@@ -171,7 +171,7 @@ def filter_texts_size(speakerdict, wordlist):
         for f in filters:
             texts = list(f(texts))
         if len(texts) != 0:
-            filtered[label] = texts  # [100*i/len(texts) for i in texts]
+            filtered[label] = [100*i/len(texts) for i in texts]  # texts
 
     return filtered
 

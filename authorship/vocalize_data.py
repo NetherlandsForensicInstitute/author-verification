@@ -18,20 +18,22 @@ class VocalizeDataSource:
         df.columns = ['SP_1', 'SP_2', 'value']
 
         # keep only the id of the conversation
+        # SP[0-9a]{3,4}-[12]-[1-8]-[1-5] = speaker_id-day-session-device
         conv_pattern = "(SP[0-9a]{3,4}-[12]-[1-8]-[1-5])"
         df[['SP_1', 'SP_2']] = df[['SP_1', 'SP_2']].apply(lambda x: x.str.extract(conv_pattern, expand=False))
 
-        # be careful (in 5 to 8 sessions the telephone is dev 2)!! + i want to have as option to choose recording device
+        # be careful (in 5 to 8 sessions the telephone is dev 2)!!
+        # only the sessions with nokia (so 2, 4, 6, and 8) were transcribed, so we drop the rest
         if self._device == 'telephone':
-            endings = ('5', '5-2', '6-2', '7-2', '8-2')
+            endings = ('2-5', '4-5', '6-2', '8-2')
         elif self._device == 'headset':
-            endings = '1'
+            endings = ('2-1', '4-1', '6-1', '8-1')
         elif self._device == 'SM58close':
-            endings = ('1-2', '2-2', '3-2', '4-2')
+            endings = ('2-2', '4-2')
         elif self._device == 'AKGC400BL':
-            endings = ('1-3', '2-3', '3-3', '4-3')
+            endings = ('2-3', '4-3')
         elif self._device == 'SM58far':
-            endings = ('1-4', '2-4', '3-4', '4-4')
+            endings = ('2-4', '4-4')
         else:
             endings = ''
             print("vocalise: no device or incorrect device was given, no filter was applied")
@@ -42,6 +44,7 @@ class VocalizeDataSource:
             .apply(lambda x: x.str.extract(conv_pattern[:(len(conv_pattern) - 7)] + ")", expand=False).str.replace("-", ""))
 
         voc_pairs = df[['SP_1', 'SP_2']].to_numpy()
+        voc_pairs_set = np.apply_along_axis(set, 1, voc_pairs)
         voc_score = df[['value']].to_numpy()
 
-        return (voc_pairs, np.array(voc_score))
+        return (voc_pairs_set, np.array(voc_score))

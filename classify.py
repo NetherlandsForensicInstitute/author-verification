@@ -275,12 +275,15 @@ def get_pairs(X, y, X_voc, conv_ids, authors_subset, sample_size):
     pairing_ids = pairs_transformation.pairing
     con_pairs = np.apply_along_axis(lambda a: np.array([conv_ids_subset[a[0]], conv_ids_subset[a[1]]]), 1, pairing_ids)
 
-    X_voc_set = np.apply_along_axis(set, 1, X_voc[0])
-    voc_score = np.apply_along_axis(lambda a: X_voc[1][np.where(X_voc_set == set(a))[0]][0][0] if len(
-        np.where(X_voc_set == set(a))[0]) == 1 else np.random.uniform(-50, 50),
-                                    1, con_pairs)
+    # X_voc_set = np.apply_along_axis(set, 1, X_voc[0])
+    X_voc_set = X_voc[0]
+    voc_score = np.apply_along_axis(lambda a: X_voc[1][np.where(X_voc_set == set(a))[0]][0][0] if len(np.where(X_voc_set == set(a))[0]) == 1 else np.NaN, 1, con_pairs)
 
-    return X_pairs, y_pairs, voc_score
+    voc_score_clean = voc_score[~np.isnan(voc_score)]
+    y_pairs_clean = y_pairs[~np.isnan(voc_score)]
+    X_pairs_clean = X_pairs[~np.isnan(voc_score), :, :]
+
+    return X_pairs_clean, y_pairs_clean, voc_score_clean
 
 
 def get_batch_simple(X, y, X_voc, conv_ids, repeats, max_n_of_pairs_per_class):
@@ -519,7 +522,7 @@ def run(dataset, voc_data, resultdir):
     exp.parameter('max_n_of_pairs_per_class', 2000)
     exp.addSearch('max_n_of_pairs_per_class', [500, 1000, 2000], include_default=False)
 
-    exp.parameter('preprocessor', prep_none)
+    exp.parameter('preprocessor', prep_gauss)
 
     exp.parameter('classifier', ('bray_logit', logit_br))
     # exp.parameter('classifier', ('dist_man', dist_ma))
@@ -528,11 +531,11 @@ def run(dataset, voc_data, resultdir):
 
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
-    exp.parameter('repeats', 1)
+    exp.parameter('repeats', 10)
 
     try:
-        # exp.runDefaults()
-        exp.runSearch('classifier')
+        exp.runDefaults()
+        # exp.runSearch('classifier')
         # exp.runFullGrid(['n_frequent_words', 'max_n_of_pairs_per_class'])
 
     except Exception as e:
