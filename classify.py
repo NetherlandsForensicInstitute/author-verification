@@ -78,7 +78,7 @@ class KdeCdfTransformer(sklearn.base.TransformerMixin):
 
             kernel = sklearn.neighbors.KernelDensity(kernel='gaussian', bandwidth=.1).fit(feature_values.reshape(-1, 1))
             precomputed_values = np.arange(self._resolution + 1).reshape(-1, 1) / self._resolution * (
-                        upper - lower) + lower
+                    upper - lower) + lower
             density = np.exp(kernel.score_samples(precomputed_values))
             cumulative_density = np.cumsum(density)
             cumulative_density = cumulative_density / cumulative_density[-1]
@@ -263,29 +263,42 @@ class makeplots:
         lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
 
 
-def get_pairs(X, y, authors_subset, sample_size):
+def get_pairs(X, y, X_voc, conv_ids, authors_subset, sample_size):
     X_subset = X[np.isin(y, authors_subset), :]
     y_subset = y[np.isin(y, authors_subset)]
+    conv_ids_subset = conv_ids[np.isin(y, authors_subset)]
 
     # pair instances: same source and different source
-    return transformers.InstancePairing(same_source_limit=sample_size // 2,
-                                        different_source_limit=sample_size // 2).transform(X_subset, y_subset)
+    pairs_transformation = transformers.InstancePairing(same_source_limit=int(sample_size),
+                                                        different_source_limit=int(sample_size))
+    X_pairs, y_pairs = pairs_transformation.transform(X_subset, y_subset)
+    pairing_ids = pairs_transformation.pairing
+    con_pairs = np.apply_along_axis(lambda a: np.array([conv_ids_subset[a[0]], conv_ids_subset[a[1]]]), 1, pairing_ids)
+
+    # X_voc_set = np.apply_along_axis(set, 1, X_voc[0])
+    X_voc_set = X_voc[0]
+    voc_score = np.apply_along_axis(lambda a: X_voc[1][np.where(X_voc_set == set(a))[0]][0][0] if len(np.where(X_voc_set == set(a))[0]) == 1 else np.NaN, 1, con_pairs)
+
+    voc_score_clean = voc_score[~np.isnan(voc_score)]
+    y_pairs_clean = y_pairs[~np.isnan(voc_score)]
+    X_pairs_clean = X_pairs[~np.isnan(voc_score), :, :]
+
+    return X_pairs_clean, y_pairs_clean, voc_score_clean
 
 
-def get_batch_simple(X, y, repeats, max_n_of_pairs_per_class):
+def get_batch_simple(X, y, X_voc, conv_ids, repeats, max_n_of_pairs_per_class):
     for i in range(repeats):
         authors = np.unique(y)
         authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
 
-        sample_size = 2 * max_n_of_pairs_per_class
-        X_train, y_train = get_pairs(X, y, authors_train, sample_size)
-        X_test, y_test = get_pairs(X, y, authors_test, sample_size)
+        X_train, y_train, X_voc_train = get_pairs(X, y, X_voc, conv_ids, authors_train, max_n_of_pairs_per_class)
+        X_test, y_test, X_voc_test = get_pairs(X, y, X_voc, conv_ids, authors_test, max_n_of_pairs_per_class)
 
-        yield X_train, y_train, X_test, y_test
+        yield X_train, y_train, X_test, y_test, X_voc_train, X_voc_test
 
 
-def evaluate_samesource(desc, dataset, n_frequent_words, max_n_of_pairs_per_class, preprocessor, classifier, calibrator,
-                        plot=None, repeats=1):
+def evaluate_samesource(desc, dataset, voc_data, n_frequent_words, max_n_of_pairs_per_class, preprocessor, classifier,
+                        calibrator, plot=None, repeats=1):
     """
     Run an experiment with the parameters provided.
 
@@ -301,12 +314,18 @@ def evaluate_samesource(desc, dataset, n_frequent_words, max_n_of_pairs_per_clas
     """
     # calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
     clf = lir.CalibratedScorer(classifier, calibrator)
+    voc_cal = lir.ScalingCalibrator(lir.LogitCalibrator())
+    mfw_voc_clf = lir.CalibratedScorer(LogisticRegression(class_weight='balanced'), calibrator)
+    combine_features_flag = False
+    if len(clf.scorer.named_steps) > 1:
+        combine_features_flag = True
+        features_clf = lir.CalibratedScorer(clf.scorer.steps[1][1], calibrator)
 
     ds = data.DataSource(dataset, n_frequent_words=n_frequent_words)
     X, y, conv_ids = ds.get()
-    voc_ds = vocalize_data.VocalizeDataSource('frida\\vocalize_results\\Output_1-21-2020 1-10-07 PM_2019A-XVector-Adaptable-20F-512-OCMS-29May2019_XVector - PLDA_baseline_allvsall.csv',
-                                              conversation_ids=conv_ids)
+    voc_ds = vocalize_data.VocalizeDataSource(voc_data)
     X_voc = voc_ds.get()
+
     assert X.shape[0] > 0
 
     desc_pre = '; '.join(name for name, tr in preprocessor.steps)
@@ -316,59 +335,121 @@ def evaluate_samesource(desc, dataset, n_frequent_words, max_n_of_pairs_per_clas
     LOG.info(f'{desc}: number of speakers: {np.unique(y).size}')
     LOG.info(f'{desc}: number of instances: {y.size}')
 
-    X = preprocessor.fit_transform(X)
+    X = preprocessor.fit_transform(X) # shouldn't this take place on the x_train and then on x_test?
 
     lrs = []
+    lrs_voc = []
+    lrs_comb = []
+    lrs_features = []
     y_all = []
-    for X_train, y_train, X_test, y_test in tqdm(get_batch_simple(X, y, repeats, max_n_of_pairs_per_class)):
-        # fit a classifier and calculate LRs
+
+    for X_train, y_train, X_test, y_test, X_voc_train, X_voc_test in tqdm(
+            get_batch_simple(X, y, X_voc, conv_ids, repeats,
+                             max_n_of_pairs_per_class)):
+
+        # there are three ways to combine the mfw method with the voc output
+        # 1. assume that mfw and voc LR scores are independent and multiply them (m1)
+        # 2. apply logit using as input the mfc and the voc score, then calibrate the resulted score (m2)
+        # 3. use the voc score as additional feature to the mfw input vector (m3)
+        # NOTE: m3 can be used only if the scorer is a classification alg, otherwise m3 = m2 with scorer always a logit
+
+        # calculate LRs for vocalize output (for m1)
+        voc_cal.fit(X=X_voc_train, y=y_train)
+        lrs_voc.append(voc_cal.transform(X_voc_test))
+
+        # mfw - fit a classifier and calculate LRs (for m1, the resulted scorer can also be used for m2)
         clf.fit(X_train, y_train)
         lrs.append(clf.predict_lr(X_test))
         y_all.append(y_test)
 
+        # take scores from mfw scorer and combine with voc output using logit then calibrate (for m2)
+        mfw_scores_train = lir.apply_scorer(clf.scorer, X_train)
+        X_comb_train = np.vstack((np.squeeze(mfw_scores_train), X_voc_train)).T
+        mfw_voc_clf.fit(X_comb_train, y_train)
+
+        mfw_scores_test = lir.apply_scorer(clf.scorer, X_test)
+        X_comb_test = np.vstack((np.squeeze(mfw_scores_test), X_voc_test)).T
+        lrs_comb.append(mfw_voc_clf.predict_lr(X_comb_test))
+
+        # check type of scorer (for m3). In current setting, a distance scorer always has 1 step while a ML has 2
+        if combine_features_flag:
+            X_train_onevector = clf.scorer.steps[0][1].transform(X_train)
+            X_train_onevector = np.column_stack((X_train_onevector, X_voc_train.T))
+            features_clf.fit(X_train_onevector, y_train)
+
+            X_test_onevector = clf.scorer.steps[0][1].transform(X_test)
+            X_test_onevector = np.column_stack((X_test_onevector, X_voc_test.T))
+            lrs_features.append(features_clf.predict_lr(X_test_onevector))
+
     lrs = np.concatenate(lrs)
+    lrs_voc = np.concatenate(lrs_voc)
+    lrs_comb = np.concatenate(lrs_comb)
+    if combine_features_flag:
+        lrs_features = np.concatenate(lrs_features)
     y_all = np.concatenate(y_all)
 
     if plot is not None:
         plot(lrs, y_all, title=title, shortname=desc)
 
-    cllr = lir.metrics.cllr(lrs, y_all)
-    # cllrmin = lir.metrics.cllr_min(lrs, y_all)
-    # cllrcal = cllr - cllrmin
-    acc = np.mean((lrs > 1) == y_all)
-    recall = np.mean(lrs[y_all == 1] > 1) # true positive rate
-    precision = np.mean(y_all[lrs > 1] == 1)
-    # tnr = np.mean(lrs[y_all == 0] < 1) # true negative rate
-    # mean_logLR_diff = np.mean(np.log(lrs[y_all == 0]))
-    # mean_logLR_same = np.mean(np.log(lrs[y_all == 1]))
+    mfw_res = calculate_metrics(lrs, y_all)
+    voc_res = calculate_metrics(lrs_voc, y_all)
+    lrs_multi = np.multiply(lrs, lrs_voc)
+    lrs_multi_res = calculate_metrics(lrs_multi, y_all)
+    comb_res = calculate_metrics(lrs_comb, y_all)
+    if combine_features_flag:
+        feat_res = calculate_metrics(lrs_features, y_all)
+        return mfw_res, lrs, y_all, voc_res, lrs_multi_res, comb_res, feat_res
+    else:
+        return mfw_res, lrs, y_all, voc_res, lrs_multi_res, comb_res
 
-    fpr, tpr, threshold = roc_curve(list(y_all), list(lrs), pos_label=1)
+
+def calculate_metrics(lrs, y, full_list=False):
+
+    cllr = lir.metrics.cllr(lrs, y)
+    acc = np.mean((lrs > 1) == y)
+    recall = np.mean(lrs[y == 1] > 1)  # true positive rate
+    precision = np.mean(y[lrs > 1] == 1)
+
+    fpr, tpr, threshold = roc_curve(list(y), list(lrs), pos_label=1)
     fnr = 1 - tpr
     eer = fpr[np.nanargmin(np.absolute((fnr - fpr)))]
 
-    # Metrics = collections.namedtuple('Metrics', ['cllr', 'cllrmin', 'cllrcal', 'accuracy', 'eer', 'recall', 'tnr',
-    #                                              'precision', 'mean_logLR_diff', 'mean_logLR_same'])
-    Metrics = collections.namedtuple('Metrics', ['cllr', 'accuracy', 'eer', 'recall', 'precision'])
+    if full_list:
+        cllrmin = lir.metrics.cllr_min(lrs, y)
+        cllrcal = cllr - cllrmin
+        tnr = np.mean(lrs[y == 0] < 1) # true negative rate
+        mean_logLR_diff = np.mean(np.log(lrs[y == 0]))
+        mean_logLR_same = np.mean(np.log(lrs[y == 1]))
+        Metrics = collections.namedtuple('Metrics', ['cllr', 'cllrmin', 'cllrcal', 'accuracy', 'eer', 'recall', 'tnr',
+                                                     'precision', 'mean_logLR_diff', 'mean_logLR_same'])
+        res = Metrics(cllr, cllrmin, cllrcal, acc, eer, recall, tnr, precision, mean_logLR_diff, mean_logLR_same)
+    else:
+        Metrics = collections.namedtuple('Metrics', ['cllr', 'accuracy', 'eer', 'recall', 'precision'])
+        res = Metrics(cllr, acc, eer, recall, precision)
 
-    return Metrics(cllr, acc, eer, recall, precision), lrs, y_all
+    return res
 
 
 def aggregate_results(out_dir, results):
-
     for params, result in results:
         desc = ', '.join(f'{name}={value}' for name, value in params)
-        print(f'{desc}: {result[0]._fields} = {list(np.round(result[0], 3))}')
+        print(f'mfw only: {result[0]._fields} = {list(np.round(result[0], 3))}--{desc}')
+        print(f'voc only: {result[3]._fields} = {list(np.round(result[3], 3))}--{desc}')
+        print(f'lrs comb by multi: {result[4]._fields} = {list(np.round(result[4], 3))}--{desc}')
+        print(f'lrs comb by logit: {result[5]._fields} = {list(np.round(result[5], 3))}--{desc}')
+        if len(result) == 7:
+            print(f'lrs comb by featu: {result[6]._fields} = {list(np.round(result[6], 3))}--{desc}')
 
-        res = {'param': desc, 'metrics': result[0], 'lrs': result[1].tolist(), 'y': result[2].tolist()}
+        # res = {'param': desc, 'metrics': result[0], 'lrs': result[1].tolist(), 'y': result[2].tolist()}
+        #
+        # path_prefix = os.path.join(out_dir, desc.replace('*', ''))
+        # lrs_path = f'{path_prefix}.txt'
+        #
+        # with open(lrs_path, 'w', encoding='utf-8') as f:
+        #     f.write(json.dumps(res, indent=4))
 
-        path_prefix = os.path.join(out_dir, desc.replace('*', ''))
-        lrs_path = f'{path_prefix}.txt'
 
-        with open(lrs_path, 'w', encoding='utf-8') as f:
-            f.write(json.dumps(res, indent=4))
-
-
-def run(dataset, resultdir):
+def run(dataset, voc_data, resultdir):
     ### PREPROCESSORS
 
     prep_none = sklearn.pipeline.Pipeline([
@@ -413,24 +494,26 @@ def run(dataset, resultdir):
 
     logit_br = sklearn.pipeline.Pipeline([
         ('bray', BrayDistance()),
-        ('clf:logit', LogisticRegression(class_weight='balanced')),
+        ('clf:logit', LogisticRegression(max_iter=600, class_weight='balanced')),
     ])
 
-    svc = sklearn.pipeline.Pipeline([
+    svm = sklearn.pipeline.Pipeline([
         ('diff:abs', transformers.AbsDiffTransformer()),
         # ('diff:shan', ShanDistanceVector()),
         # ('diff:bray', BrayDistance()),
         ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
     ])
 
-    svc_br = sklearn.pipeline.Pipeline([
+    svm_br = sklearn.pipeline.Pipeline([
         ('diff:bray', BrayDistance()),
         ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
     ])
 
+
     exp = experiments.Evaluation(evaluate_samesource, partial(aggregate_results, resultdir))
 
     exp.parameter('dataset', dataset)
+    exp.parameter('voc_data', voc_data)
     exp.parameter('plot', makeplots(resultdir))
 
     exp.parameter('n_frequent_words', 200)
@@ -439,20 +522,21 @@ def run(dataset, resultdir):
     exp.parameter('max_n_of_pairs_per_class', 2000)
     exp.addSearch('max_n_of_pairs_per_class', [500, 1000, 2000], include_default=False)
 
-    exp.parameter('preprocessor', prep_none)
+    exp.parameter('preprocessor', prep_gauss)
 
     exp.parameter('classifier', ('bray_logit', logit_br))
+    # exp.parameter('classifier', ('dist_man', dist_ma))
     exp.addSearch('classifier', [('dist_man', dist_ma), ('dist_bray', dist_br), ('man_logit', logit),
-                                 ('bray_logit', logit_br), ('man_svc', svc),
-                                 ('bray_svc', svc_br)], include_default=False)
+                                 ('bray_logit', logit_br)], include_default=False)  # TODO: svm takes lots of time, check it with correct data
+
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
     exp.parameter('repeats', 1)
 
     try:
-        # exp.runDefaults()
-        exp.runSearch('max_n_of_pairs_per_class')
-        # exp.runFullGrid(['n_frequent_words', 'classifier'])
+        exp.runDefaults()
+        # exp.runSearch('classifier')
+        # exp.runFullGrid(['n_frequent_words', 'max_n_of_pairs_per_class'])
 
     except Exception as e:
         LOG.fatal(e.args[1])
@@ -472,9 +556,9 @@ if __name__ == '__main__':
     parser.add_argument('--data', metavar='FILENAME',
                         help=f'dataset to be used; index file as generated by `sha256sum` (default: {config.data})',
                         default=config.data)
-    parser.add_argument('--vocalize-data', metavar='FILENAME',
-                        help=f'vocalize output to be used; (default: {config.voc_data})',
-                        default=config.voc_data)
+    parser.add_argument('--vocalise-data', metavar='FILENAME',
+                        help=f'vocalize output to be used; (default: {config.vocalise_data})',
+                        default=config.vocalise_data)
     parser.add_argument('--output-directory', '-o', metavar='DIRNAME',
                         help=f'path to generated output files (default: {config.resultdir})', default=config.resultdir)
     args = parser.parse_args()
@@ -482,4 +566,4 @@ if __name__ == '__main__':
     setupLogging(args)
 
     os.makedirs(args.output_directory, exist_ok=True)
-    run(args.data, args.output_directory)
+    run(args.data, args.vocalise_data, args.output_directory)

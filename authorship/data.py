@@ -41,9 +41,9 @@ class DataSource:
         speakers_cov = filter_texts_size(speakers_wordlist, wordlist)
 
         # convert to X, y
-        X, y, conv_ids = to_vector_size(speakers_cov)
+        X, y, ids = to_vector_size(speakers_cov)
 
-        return X, y, conv_ids
+        return X, y, ids
 
     def __repr__(self):
         return f'data(freqwords={self._n_freqwords})'
@@ -168,10 +168,11 @@ def filter_texts_size(speakerdict, wordlist):
     filtered = {}
     for label, texts in speakerdict.items():
         LOG.debug('filter in subset {}'.format(label))
+        ltexts = len(texts)
         for f in filters:
             texts = list(f(texts))
         if len(texts) != 0:
-            filtered[label] = texts  # [100*i/len(texts) for i in texts]
+            filtered[label] = [100*i/ltexts for i in texts]  # texts
 
     return filtered
 
@@ -184,11 +185,12 @@ def to_vector_size(speakers):
     :param speakers: the output of filter_texts_size
     """
     features = []
-    speakers_id = []
-    labels = []
+    speaker_ids = []
+    conv_ids = []
+
     for conv_id, texts in speakers.items():
         features.append(texts)
-        speakers_id.append(conv_id[2:(len(conv_id)-2)])
-        labels.append(conv_id)
+        speaker_ids.append(conv_id[2:(len(conv_id) - 2)])
+        conv_ids.append(conv_id)
 
-    return np.concatenate(features),  np.array(speakers_id), np.array(labels)
+    return np.concatenate(features),  np.array(speaker_ids),  np.array(conv_ids)
