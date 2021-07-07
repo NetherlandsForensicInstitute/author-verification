@@ -531,7 +531,7 @@ def run(dataset, voc_data, resultdir):
 
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
-    exp.parameter('repeats', 10)
+    exp.parameter('repeats', 1)
 
     try:
         exp.runDefaults()

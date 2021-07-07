@@ -168,10 +168,11 @@ def filter_texts_size(speakerdict, wordlist):
     filtered = {}
     for label, texts in speakerdict.items():
         LOG.debug('filter in subset {}'.format(label))
+        ltexts = len(texts)
         for f in filters:
             texts = list(f(texts))
         if len(texts) != 0:
-            filtered[label] = [100*i/len(texts) for i in texts]  # texts
+            filtered[label] = [100*i/ltexts for i in texts]  # texts
 
     return filtered
 
