@@ -1,0 +1,37 @@
+Notes from Anya (BUT)
+
+The transcriptions are in SNOR format (mono-case text with no syntactic punctuation)
+
+LDC automatically segmented the speech and then the transcriber had to type in the words for each segment.  
+When the transcriber wasn't sure, he could try to guess and put it to double parentheses, or he could leave them empty.
+
+In the case of BBN, the transcriber heard the whole conversation and transcribed it. 
+Then, ASR was used to align the transcription text and audio and assign time steps for individual utterances. 
+Double parentheses were not used by transcribers at all, rather they were added on the ASR alignment stage if 
+the manual and automatic transcriptions differed significantly.
+
+-----------------------------------------------------------------------------------
+Notes on LDC transcriptions
+
+1. no capitals
+2. contractions are used (i'm, aren't, there's)
+3. e.g., L.A. (Los Angeles) is transcribed as: l._a. 
+4. word part followed by "-", e.g., par- , is this for incomplete words?
+5. (( )) unclear utterance
+6. (( text )) best estimate by transcriber
+7.
+8. [type of noice] for noises such as laughter
+9. uh-huh also seen as uh huh, mm-hum, huh-huh
+
+-----------------------------------------------------------------------------------
+Notes on BBN/WordWave transcriptions
+
+1. no capitals
+2. contractions are used (i'm, aren't, there's)
+3. e.g., L.A. (Los Angeles) is transcribed as: l._a.
+4. word part followed by "-", e.g., par- , is this for incomplete words?
+5.
+6.
+7. (( text )) when manual and automatic transcriptions differed significantly
+8. [type of noice] for noises such as laughter
+9. uh-huh, mm-hum, huh-huh
