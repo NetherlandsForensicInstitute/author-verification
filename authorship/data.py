@@ -12,7 +12,6 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 
 from boilerplate import fileio
 
-
 LOG = logging.getLogger(__name__)
 
 
