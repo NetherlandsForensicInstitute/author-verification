@@ -3,7 +3,6 @@ import re
 from tqdm import tqdm
 import json
 import collections
-import pandas as pd
 
 
 def load_data(path):
