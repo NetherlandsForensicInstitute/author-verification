@@ -263,68 +263,106 @@ class makeplots:
         lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
 
 
-def get_pairs(X, y, X_voc, conv_ids, authors_subset, sample_size):
-    X_subset = X[np.isin(y, authors_subset), :]
-    y_subset = y[np.isin(y, authors_subset)]
-    conv_ids_subset = conv_ids[np.isin(y, authors_subset)]
+def get_pairs(X, y, conv_ids, voc_conv_pairs, voc_scores, sample_size):
+    """
+    X = conversations - from the transcriptions
+    y = labels (speaker id) - from the transcriptions
+    conv_ids = conversation id per instance - from the transcriptions
+    voc_conv_pairs = pair of conversation ids compared using vocalise
+    voc_scores = vocalise score for each pair in the voc_conv_pairs
+    authors_subset = labels to include
+    sample_size = maximum number of samples per label
+
+    actual number of samples is expected to be smaller if vocalize scores are missing!!
+
+    return: transcriptions pairs, labels 0 or 1, vocalize score
+    """
+    # X_subset = X[np.isin(y, authors_subset), :]
+    # y_subset = y[np.isin(y, authors_subset)]
+    # conv_ids_subset = conv_ids[np.isin(y, authors_subset)]
+    X_subset = X
+    y_subset = y
+    conv_ids_subset = conv_ids
 
     # pair instances: same source and different source
     pairs_transformation = transformers.InstancePairing(same_source_limit=int(sample_size),
                                                         different_source_limit=int(sample_size))
     X_pairs, y_pairs = pairs_transformation.transform(X_subset, y_subset)
-    pairing_ids = pairs_transformation.pairing
-    con_pairs = np.apply_along_axis(lambda a: np.array([conv_ids_subset[a[0]], conv_ids_subset[a[1]]]), 1, pairing_ids)
+    pairing = pairs_transformation.pairing  # indices of pairs based on the transcriptions
+    conv_pairs = np.apply_along_axis(lambda a: np.array([conv_ids_subset[a[0]], conv_ids_subset[a[1]]]), 1, pairing)  # from indices to the actual pairs
 
-    # X_voc_set = np.apply_along_axis(set, 1, X_voc[0])
-    X_voc_set = X_voc[0]
-    voc_score = np.apply_along_axis(lambda a: X_voc[1][np.where(X_voc_set == set(a))[0]][0][0] if len(np.where(X_voc_set == set(a))[0]) == 1 else np.NaN, 1, con_pairs)
+    # search the pair based on transcription within the conv_ids_subset (order of the speaker ids is not crucial)
+    # and return the vocalise score if no score exists set value to NaN
+    voc_scores_subset = np.apply_along_axis(
+        lambda a: voc_scores[np.where(voc_conv_pairs == set(a))[0]][0][0]
+        if len(np.where(voc_conv_pairs == set(a))[0]) == 1 else np.NaN, 1, conv_pairs)
 
-    voc_score_clean = voc_score[~np.isnan(voc_score)]
-    y_pairs_clean = y_pairs[~np.isnan(voc_score)]
-    X_pairs_clean = X_pairs[~np.isnan(voc_score), :, :]
+    # to be able to combine the two systems we work only with the data that overlap
+    voc_score_clean = voc_scores_subset[~np.isnan(voc_scores_subset)]
+    y_pairs_clean = y_pairs[~np.isnan(voc_scores_subset)]
+    X_pairs_clean = X_pairs[~np.isnan(voc_scores_subset), :, :]
 
-    return X_pairs_clean, y_pairs_clean, voc_score_clean
+    return X_pairs_clean, voc_score_clean, y_pairs_clean
 
 
-def get_batch_simple(X, y, X_voc, conv_ids, repeats, max_n_of_pairs_per_class):
+def get_batch_simple(X, y, conv_ids, voc_conv_pairs, voc_scores, repeats, max_n_of_pairs_per_class, preprocessor):
     for i in range(repeats):
         authors = np.unique(y)
         authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
 
-        X_train, y_train, X_voc_train = get_pairs(X, y, X_voc, conv_ids, authors_train, max_n_of_pairs_per_class)
-        X_test, y_test, X_voc_test = get_pairs(X, y, X_voc, conv_ids, authors_test, max_n_of_pairs_per_class)
+        # prep data for train
+        X_subset_for_train = X[np.isin(y, authors_train), :]
+        y_subset_for_train = y[np.isin(y, authors_train)]
+        conv_ids_subset_for_train = conv_ids[np.isin(y, authors_train)]
+        X_subset_for_train = preprocessor.fit_transform(X_subset_for_train)
 
-        yield X_train, y_train, X_test, y_test, X_voc_train, X_voc_test
+        # prep data for test
+        X_subset_for_test = X[np.isin(y, authors_test), :]
+        y_subset_for_test = y[np.isin(y, authors_test)]
+        conv_ids_subset_for_test = conv_ids[np.isin(y, authors_test)]
+        X_subset_for_test = preprocessor.transform(X_subset_for_test)
+
+        X_train, X_voc_train, y_train = get_pairs(X_subset_for_train, y_subset_for_train, conv_ids_subset_for_train,
+                                                  voc_conv_pairs, voc_scores, max_n_of_pairs_per_class)
+        X_test, X_voc_test, y_test = get_pairs(X_subset_for_test, y_subset_for_test, conv_ids_subset_for_test,
+                                               voc_conv_pairs, voc_scores, max_n_of_pairs_per_class)
+        # X_train, X_voc_train, y_train = get_pairs(X, y, conv_ids, voc_conv_pairs, voc_scores, authors_train, max_n_of_pairs_per_class)
+        # X_test, X_voc_test, y_test = get_pairs(X, y, conv_ids, voc_conv_pairs, voc_scores, authors_test, max_n_of_pairs_per_class)
+
+        yield X_train, X_voc_train, y_train, X_test, X_voc_test, y_test
 
 
-def evaluate_samesource(desc, dataset, voc_data, n_frequent_words, max_n_of_pairs_per_class, preprocessor, classifier,
-                        calibrator, plot=None, repeats=1):
+def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n_of_pairs_per_class, preprocessor, classifier,
+                        calibrator, plot=None, repeats=1, min_num_of_words=0):
     """
     Run an experiment with the parameters provided.
 
     :param desc: free text description of the experiment
-    :param frida_path: path to transcript index file
-    :param tokens_per_sample: int: number of tokens per sample (sample length)
+    :param dataset: path to transcript index file
+    :param voc_data: path to vocalise output
+    :param n_frequent_words: int: number of most frequent words to be used in the analysis
+    :param max_n_of_pairs_per_class: maximum number of pairs per class (same- or different-source) to be taken
     :param preprocessor: Pipeline: an sklearn pipeline
     :param classifier: Pipeline: an sklearn pipeline with a classifier as last element
     :param calibrator: a LIR calibrator
     :param plot: a plotting function
     :param repeats: int: the number of times the experiment is run
-    :return: a CLLR
+
+    :return: a cllr, accuracy, eer, recall, precision
     """
-    # calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
-    clf = lir.CalibratedScorer(classifier, calibrator)
-    voc_cal = lir.ScalingCalibrator(lir.LogitCalibrator())
-    mfw_voc_clf = lir.CalibratedScorer(LogisticRegression(class_weight='balanced'), calibrator)
-    combine_features_flag = False
+
+    clf = lir.CalibratedScorer(classifier, calibrator)  # set up classifier and calibrator for authorship technique
+    voc_cal = lir.ScalingCalibrator(lir.LogitCalibrator())  # set up calibrator for vocalise output
+    mfw_voc_clf = lir.CalibratedScorer(LogisticRegression(class_weight='balanced'), calibrator)  # set up logit as classifier and calibrator for a type of fusion
+    combine_features_flag = False  # In current setting, a distance scorer always has 1 step while a ML has 2
     if len(clf.scorer.named_steps) > 1:
         combine_features_flag = True
-        features_clf = lir.CalibratedScorer(clf.scorer.steps[1][1], calibrator)
+        features_clf = lir.CalibratedScorer(clf.scorer.steps[1][1], calibrator)  # set up classifier and calibrator for a type of fusion
 
-    ds = data.DataSource(dataset, n_frequent_words=n_frequent_words)
+    ds = data.DataSource(dataset, n_frequent_words=n_frequent_words, min_num_of_words=min_num_of_words)
     X, y, conv_ids = ds.get()
-    voc_ds = vocalize_data.VocalizeDataSource(voc_data)
-    X_voc = voc_ds.get()
+    voc_ds = vocalize_data.VocalizeDataSource(voc_data, device=device)
+    voc_conv_pairs, voc_scores = voc_ds.get()
 
     assert X.shape[0] > 0
 
@@ -335,17 +373,21 @@ def evaluate_samesource(desc, dataset, voc_data, n_frequent_words, max_n_of_pair
     LOG.info(f'{desc}: number of speakers: {np.unique(y).size}')
     LOG.info(f'{desc}: number of instances: {y.size}')
 
-    X = preprocessor.fit_transform(X) # shouldn't this take place on the x_train and then on x_test?
+    # X = preprocessor.fit_transform(X)  # shouldn't this take place on the x_train and then on x_test?
 
-    lrs = []
+    lrs_mfw = []
     lrs_voc = []
     lrs_comb = []
     lrs_features = []
     y_all = []
 
-    for X_train, y_train, X_test, y_test, X_voc_train, X_voc_test in tqdm(
-            get_batch_simple(X, y, X_voc, conv_ids, repeats,
-                             max_n_of_pairs_per_class)):
+    for X_train, X_voc_train, y_train, X_test, X_voc_test, y_test in tqdm(
+            get_batch_simple(X, y, conv_ids, voc_conv_pairs, voc_scores, repeats,
+                             max_n_of_pairs_per_class, preprocessor)):
+
+        # preprocessing the data - NOT WORKING - not the place to be, at t
+        # X_train = preprocessor.fit_transform(X_train)
+        # X_test = preprocessor.transform(X_test)
 
         # there are three ways to combine the mfw method with the voc output
         # 1. assume that mfw and voc LR scores are independent and multiply them (m1)
@@ -359,29 +401,36 @@ def evaluate_samesource(desc, dataset, voc_data, n_frequent_words, max_n_of_pair
 
         # mfw - fit a classifier and calculate LRs (for m1, the resulted scorer can also be used for m2)
         clf.fit(X_train, y_train)
-        lrs.append(clf.predict_lr(X_test))
+        lrs_mfw.append(clf.predict_lr(X_test))
         y_all.append(y_test)
 
         # take scores from mfw scorer and combine with voc output using logit then calibrate (for m2)
         mfw_scores_train = lir.apply_scorer(clf.scorer, X_train)
-        X_comb_train = np.vstack((np.squeeze(mfw_scores_train), X_voc_train)).T
+
+        # scale voc_score to match the value range of the mfw clasifier (0-1)
+        scaler = sklearn.preprocessing.MinMaxScaler()
+        scaler.fit(X_voc_train.reshape(-1, 1))
+        X_voc_train_norm = scaler.transform(X_voc_train.reshape(-1, 1)).T
+        X_voc_test_norm = scaler.transform(X_voc_test.reshape(-1, 1)).T
+
+        X_comb_train = np.vstack((np.squeeze(mfw_scores_train), X_voc_train_norm)).T
         mfw_voc_clf.fit(X_comb_train, y_train)
 
         mfw_scores_test = lir.apply_scorer(clf.scorer, X_test)
-        X_comb_test = np.vstack((np.squeeze(mfw_scores_test), X_voc_test)).T
+        X_comb_test = np.vstack((np.squeeze(mfw_scores_test), X_voc_test_norm)).T
         lrs_comb.append(mfw_voc_clf.predict_lr(X_comb_test))
 
         # check type of scorer (for m3). In current setting, a distance scorer always has 1 step while a ML has 2
         if combine_features_flag:
             X_train_onevector = clf.scorer.steps[0][1].transform(X_train)
-            X_train_onevector = np.column_stack((X_train_onevector, X_voc_train.T))
+            X_train_onevector = np.column_stack((X_train_onevector, X_voc_train_norm.T))
             features_clf.fit(X_train_onevector, y_train)
 
             X_test_onevector = clf.scorer.steps[0][1].transform(X_test)
-            X_test_onevector = np.column_stack((X_test_onevector, X_voc_test.T))
+            X_test_onevector = np.column_stack((X_test_onevector, X_voc_test_norm.T))
             lrs_features.append(features_clf.predict_lr(X_test_onevector))
 
-    lrs = np.concatenate(lrs)
+    lrs_mfw = np.concatenate(lrs_mfw)
     lrs_voc = np.concatenate(lrs_voc)
     lrs_comb = np.concatenate(lrs_comb)
     if combine_features_flag:
@@ -389,18 +438,18 @@ def evaluate_samesource(desc, dataset, voc_data, n_frequent_words, max_n_of_pair
     y_all = np.concatenate(y_all)
 
     if plot is not None:
-        plot(lrs, y_all, title=title, shortname=desc)
+        plot(lrs_mfw, y_all, title=title, shortname=desc)
 
-    mfw_res = calculate_metrics(lrs, y_all)
+    mfw_res = calculate_metrics(lrs_mfw, y_all)
     voc_res = calculate_metrics(lrs_voc, y_all)
-    lrs_multi = np.multiply(lrs, lrs_voc)
+    lrs_multi = np.multiply(lrs_mfw, lrs_voc)
     lrs_multi_res = calculate_metrics(lrs_multi, y_all)
     comb_res = calculate_metrics(lrs_comb, y_all)
     if combine_features_flag:
         feat_res = calculate_metrics(lrs_features, y_all)
-        return mfw_res, lrs, y_all, voc_res, lrs_multi_res, comb_res, feat_res
+        return mfw_res, lrs_mfw, y_all, voc_res, lrs_multi_res, comb_res, feat_res
     else:
-        return mfw_res, lrs, y_all, voc_res, lrs_multi_res, comb_res
+        return mfw_res, lrs_mfw, y_all, voc_res, lrs_multi_res, comb_res
 
 
 def calculate_metrics(lrs, y, full_list=False):
@@ -417,7 +466,7 @@ def calculate_metrics(lrs, y, full_list=False):
     if full_list:
         cllrmin = lir.metrics.cllr_min(lrs, y)
         cllrcal = cllr - cllrmin
-        tnr = np.mean(lrs[y == 0] < 1) # true negative rate
+        tnr = np.mean(lrs[y == 0] < 1)  # true negative rate
         mean_logLR_diff = np.mean(np.log(lrs[y == 0]))
         mean_logLR_same = np.mean(np.log(lrs[y == 1]))
         Metrics = collections.namedtuple('Metrics', ['cllr', 'cllrmin', 'cllrcal', 'accuracy', 'eer', 'recall', 'tnr',
@@ -509,12 +558,14 @@ def run(dataset, voc_data, resultdir):
         ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
     ])
 
-
     exp = experiments.Evaluation(evaluate_samesource, partial(aggregate_results, resultdir))
 
     exp.parameter('dataset', dataset)
     exp.parameter('voc_data', voc_data)
-    exp.parameter('plot', makeplots(resultdir))
+    exp.parameter('device', 'telephone')  # options: telephone, headset, SM58close, AKGC400BL, SM58far
+    # exp.parameter('plot', makeplots(resultdir))
+
+    exp.parameter('min_num_of_words', 0)
 
     exp.parameter('n_frequent_words', 200)
     exp.addSearch('n_frequent_words', [50, 100, 200, 300], include_default=False)
@@ -525,13 +576,11 @@ def run(dataset, voc_data, resultdir):
     exp.parameter('preprocessor', prep_gauss)
 
     exp.parameter('classifier', ('bray_logit', logit_br))
-    # exp.parameter('classifier', ('dist_man', dist_ma))
     exp.addSearch('classifier', [('dist_man', dist_ma), ('dist_bray', dist_br), ('man_logit', logit),
-                                 ('bray_logit', logit_br)], include_default=False)  # TODO: svm takes lots of time, check it with correct data
-
+                                 ('bray_logit', logit_br)], include_default=False)
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
-    exp.parameter('repeats', 1)
+    exp.parameter('repeats', 10)
 
     try:
         exp.runDefaults()
