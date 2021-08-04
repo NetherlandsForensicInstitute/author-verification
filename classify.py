@@ -576,8 +576,7 @@ def run(dataset, voc_data, resultdir):
     exp.parameter('preprocessor', prep_gauss)
 
     exp.parameter('classifier', ('bray_logit', logit_br))
-    exp.addSearch('classifier', [('dist_man', dist_ma), ('dist_bray', dist_br), ('man_logit', logit),
-                                 ('bray_logit', logit_br)], include_default=False)
+    exp.addSearch('classifier', [('man_logit', logit), ('dist_man', dist_ma), ('bray_svm', svm_br), ('bray_logit', logit_br)], include_default=False)
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
     exp.parameter('repeats', 10)
