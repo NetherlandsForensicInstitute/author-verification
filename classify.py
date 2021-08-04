@@ -579,7 +579,7 @@ def run(dataset, voc_data, resultdir):
     exp.addSearch('classifier', [('man_logit', logit), ('dist_man', dist_ma), ('bray_svm', svm_br), ('bray_logit', logit_br)], include_default=False)
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
-    exp.parameter('repeats', 1)
+    exp.parameter('repeats', 10)
 
     try:
         exp.runDefaults()
