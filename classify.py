@@ -270,28 +270,20 @@ def get_pairs(X, y, conv_ids, voc_conv_pairs, voc_scores, sample_size):
     conv_ids = conversation id per instance - from the transcriptions
     voc_conv_pairs = pair of conversation ids compared using vocalise
     voc_scores = vocalise score for each pair in the voc_conv_pairs
-    authors_subset = labels to include
     sample_size = maximum number of samples per label
 
     actual number of samples is expected to be smaller if vocalize scores are missing!!
 
     return: transcriptions pairs, labels 0 or 1, vocalize score
     """
-    # X_subset = X[np.isin(y, authors_subset), :]
-    # y_subset = y[np.isin(y, authors_subset)]
-    # conv_ids_subset = conv_ids[np.isin(y, authors_subset)]
-    X_subset = X
-    y_subset = y
-    conv_ids_subset = conv_ids
-
     # pair instances: same source and different source
     pairs_transformation = transformers.InstancePairing(same_source_limit=int(sample_size),
                                                         different_source_limit=int(sample_size))
-    X_pairs, y_pairs = pairs_transformation.transform(X_subset, y_subset)
+    X_pairs, y_pairs = pairs_transformation.transform(X, y)
     pairing = pairs_transformation.pairing  # indices of pairs based on the transcriptions
-    conv_pairs = np.apply_along_axis(lambda a: np.array([conv_ids_subset[a[0]], conv_ids_subset[a[1]]]), 1, pairing)  # from indices to the actual pairs
+    conv_pairs = np.apply_along_axis(lambda a: np.array([conv_ids[a[0]], conv_ids[a[1]]]), 1, pairing)  # from indices to the actual pairs
 
-    # search the pair based on transcription within the conv_ids_subset (order of the speaker ids is not crucial)
+    # search the pair based on transcription within the conv_ids (order of the speaker ids is not crucial)
     # and return the vocalise score if no score exists set value to NaN
     voc_scores_subset = np.apply_along_axis(
         lambda a: voc_scores[np.where(voc_conv_pairs == set(a))[0]][0][0]
@@ -312,28 +304,26 @@ def get_batch_simple(X, y, conv_ids, voc_conv_pairs, voc_scores, repeats, max_n_
 
         # prep data for train
         X_subset_for_train = X[np.isin(y, authors_train), :]
+        X_subset_for_train = preprocessor.fit_transform(X_subset_for_train)
         y_subset_for_train = y[np.isin(y, authors_train)]
         conv_ids_subset_for_train = conv_ids[np.isin(y, authors_train)]
-        X_subset_for_train = preprocessor.fit_transform(X_subset_for_train)
 
         # prep data for test
         X_subset_for_test = X[np.isin(y, authors_test), :]
+        X_subset_for_test = preprocessor.transform(X_subset_for_test)
         y_subset_for_test = y[np.isin(y, authors_test)]
         conv_ids_subset_for_test = conv_ids[np.isin(y, authors_test)]
-        X_subset_for_test = preprocessor.transform(X_subset_for_test)
 
         X_train, X_voc_train, y_train = get_pairs(X_subset_for_train, y_subset_for_train, conv_ids_subset_for_train,
                                                   voc_conv_pairs, voc_scores, max_n_of_pairs_per_class)
         X_test, X_voc_test, y_test = get_pairs(X_subset_for_test, y_subset_for_test, conv_ids_subset_for_test,
                                                voc_conv_pairs, voc_scores, max_n_of_pairs_per_class)
-        # X_train, X_voc_train, y_train = get_pairs(X, y, conv_ids, voc_conv_pairs, voc_scores, authors_train, max_n_of_pairs_per_class)
-        # X_test, X_voc_test, y_test = get_pairs(X, y, conv_ids, voc_conv_pairs, voc_scores, authors_test, max_n_of_pairs_per_class)
 
         yield X_train, X_voc_train, y_train, X_test, X_voc_test, y_test
 
 
 def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n_of_pairs_per_class, preprocessor, classifier,
-                        calibrator, plot=None, repeats=1, min_num_of_words=0):
+                        calibrator, plot=None, repeats=1, min_num_of_words=0, all_metrics=False):
     """
     Run an experiment with the parameters provided.
 
@@ -348,7 +338,8 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     :param plot: a plotting function
     :param repeats: int: the number of times the experiment is run
 
-    :return: a cllr, accuracy, eer, recall, precision
+    :return: cllr, accuracy, eer, recall, precision (if all_metrics=True then cllr, cllr_min, cllr_cal, accuracy, eer,
+             recall, true negative rate, precision, mean_logLR_diff, mean_logLR_same)
     """
 
     clf = lir.CalibratedScorer(classifier, calibrator)  # set up classifier and calibrator for authorship technique
@@ -440,13 +431,13 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     if plot is not None:
         plot(lrs_mfw, y_all, title=title, shortname=desc)
 
-    mfw_res = calculate_metrics(lrs_mfw, y_all)
-    voc_res = calculate_metrics(lrs_voc, y_all)
-    lrs_multi = np.multiply(lrs_mfw, lrs_voc)
-    lrs_multi_res = calculate_metrics(lrs_multi, y_all)
-    comb_res = calculate_metrics(lrs_comb, y_all)
+    mfw_res = calculate_metrics(lrs_mfw, y_all, full_list=all_metrics)
+    voc_res = calculate_metrics(lrs_voc, y_all, full_list=all_metrics)
+    lrs_multi = np.multiply(lrs_mfw, lrs_voc, full_list=all_metrics)
+    lrs_multi_res = calculate_metrics(lrs_multi, y_all, full_list=all_metrics)
+    comb_res = calculate_metrics(lrs_comb, y_all, full_list=all_metrics)
     if combine_features_flag:
-        feat_res = calculate_metrics(lrs_features, y_all)
+        feat_res = calculate_metrics(lrs_features, y_all, full_list=all_metrics)
         return mfw_res, lrs_mfw, y_all, voc_res, lrs_multi_res, comb_res, feat_res
     else:
         return mfw_res, lrs_mfw, y_all, voc_res, lrs_multi_res, comb_res
@@ -499,7 +490,7 @@ def aggregate_results(out_dir, results):
 
 
 def run(dataset, voc_data, resultdir):
-    ### PREPROCESSORS
+    ### PREPROCESSORS for authorship verification
 
     prep_none = sklearn.pipeline.Pipeline([
         ('scale:none', None),
@@ -526,7 +517,7 @@ def run(dataset, voc_data, resultdir):
         ('pop:kde', KdeCdfTransformer()),  # cumulative density function for each feature
     ])
 
-    ### CLASSIFIERS
+    ### CLASSIFIERS for authorship verification
 
     dist_br = sklearn.pipeline.Pipeline([
         ('dist:bray', VectorDistance(scipy.spatial.distance.braycurtis)),
