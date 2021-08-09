@@ -5,9 +5,9 @@ __pycache__
 
 /.cache
 /output
+/fisher
 /run.log
 /venv
-/frida/vocalize_results/
 
 *vcs.xml
 

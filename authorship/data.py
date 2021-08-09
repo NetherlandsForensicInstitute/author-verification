@@ -143,10 +143,12 @@ def get_frequent_words(speakers, n):
     for sp in speakers.values():
         for word in sp:
             if '*' in word:
-                print(word)
-                # continue
+                continue
             else:
                 freq[word] += 1
+
+    # with open('frida/predictions/word_frequencies.json', 'w') as fp:
+    #     json.dump(freq, fp)
     freq = sorted(freq.items(), key=lambda x: x[1], reverse=True)
     return freq[:n]
 
@@ -163,12 +165,21 @@ def filter_texts(speakerdict, wordlist, min_num_of_words):
     f = CreateFeatureVector(wordlist)
 
     filtered = {}
+    # conv_lens = {}
     for label, texts in speakerdict.items():
         LOG.debug('filter in subset {}'.format(label))
         ltexts = len(texts)
+        # conv_lens[label] = ltexts
         filtered_texts = list(f(texts))
         if ltexts > min_num_of_words:
             filtered[label] = [100*i/ltexts for i in filtered_texts]  # texts
+
+    # with open('frida/predictions/conversation_length.json', 'w') as fp:
+    #     json.dump(conv_lens, fp)
+    #
+    # filtered_to_save = {k: val[0].tolist() for k, val in filtered.items()}
+    # with open('frida/predictions/conversation_relative_frequencies.json', 'w') as fp:
+    #     json.dump(filtered_to_save, fp)
 
     return filtered
 

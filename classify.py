@@ -293,8 +293,9 @@ def get_pairs(X, y, conv_ids, voc_conv_pairs, voc_scores, sample_size):
     voc_score_clean = voc_scores_subset[~np.isnan(voc_scores_subset)]
     y_pairs_clean = y_pairs[~np.isnan(voc_scores_subset)]
     X_pairs_clean = X_pairs[~np.isnan(voc_scores_subset), :, :]
+    conv_pairs_clean = conv_pairs[~np.isnan(voc_scores_subset)]
 
-    return X_pairs_clean, voc_score_clean, y_pairs_clean
+    return X_pairs_clean, voc_score_clean, y_pairs_clean, conv_pairs_clean
 
 
 def get_batch_simple(X, y, conv_ids, voc_conv_pairs, voc_scores, repeats, max_n_of_pairs_per_class, preprocessor):
@@ -314,12 +315,14 @@ def get_batch_simple(X, y, conv_ids, voc_conv_pairs, voc_scores, repeats, max_n_
         y_subset_for_test = y[np.isin(y, authors_test)]
         conv_ids_subset_for_test = conv_ids[np.isin(y, authors_test)]
 
-        X_train, X_voc_train, y_train = get_pairs(X_subset_for_train, y_subset_for_train, conv_ids_subset_for_train,
-                                                  voc_conv_pairs, voc_scores, max_n_of_pairs_per_class)
-        X_test, X_voc_test, y_test = get_pairs(X_subset_for_test, y_subset_for_test, conv_ids_subset_for_test,
-                                               voc_conv_pairs, voc_scores, max_n_of_pairs_per_class)
+        X_train, X_voc_train, y_train, conv_pairs_train = get_pairs(X_subset_for_train, y_subset_for_train,
+                                                                    conv_ids_subset_for_train, voc_conv_pairs,
+                                                                    voc_scores, max_n_of_pairs_per_class)
+        X_test, X_voc_test, y_test, conv_pairs_test = get_pairs(X_subset_for_test, y_subset_for_test,
+                                                                conv_ids_subset_for_test, voc_conv_pairs, voc_scores,
+                                                                max_n_of_pairs_per_class)
 
-        yield X_train, X_voc_train, y_train, X_test, X_voc_test, y_test
+        yield X_train, X_voc_train, y_train, X_test, X_voc_test, y_test, conv_pairs_test
 
 
 def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n_of_pairs_per_class, preprocessor, classifier,
@@ -371,14 +374,15 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     lrs_comb = []
     lrs_features = []
     y_all = []
+    results_to_save = collections.defaultdict(dict)
 
-    for X_train, X_voc_train, y_train, X_test, X_voc_test, y_test in tqdm(
+    for count, (X_train, X_voc_train, y_train, X_test, X_voc_test, y_test, conv_pairs_test) in tqdm(enumerate(
             get_batch_simple(X, y, conv_ids, voc_conv_pairs, voc_scores, repeats,
-                             max_n_of_pairs_per_class, preprocessor)):
+                             max_n_of_pairs_per_class, preprocessor))):
 
-        # preprocessing the data - NOT WORKING - not the place to be, at t
-        # X_train = preprocessor.fit_transform(X_train)
-        # X_test = preprocessor.transform(X_test)
+        # keep pairs and flags for test per repeat
+        results_to_save[count]['pairs'] = conv_pairs_test.tolist()
+        results_to_save[count]['y'] = y_test.tolist()
 
         # there are three ways to combine the mfw method with the voc output
         # 1. assume that mfw and voc LR scores are independent and multiply them (m1)
@@ -411,6 +415,10 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         X_comb_test = np.vstack((np.squeeze(mfw_scores_test), X_voc_test_norm)).T
         lrs_comb.append(mfw_voc_clf.predict_lr(X_comb_test))
 
+        results_to_save[count]['lrs_mfw'] = lrs_mfw[0].tolist()
+        results_to_save[count]['lrs_voc'] = lrs_voc[0].tolist()
+        results_to_save[count]['lrs_comb'] = lrs_comb[0].tolist()
+
         # check type of scorer (for m3). In current setting, a distance scorer always has 1 step while a ML has 2
         if combine_features_flag:
             X_train_onevector = clf.scorer.steps[0][1].transform(X_train)
@@ -421,12 +429,17 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
             X_test_onevector = np.column_stack((X_test_onevector, X_voc_test_norm.T))
             lrs_features.append(features_clf.predict_lr(X_test_onevector))
 
+            results_to_save[count]['lrs_feat'] = lrs_features
+
     lrs_mfw = np.concatenate(lrs_mfw)
     lrs_voc = np.concatenate(lrs_voc)
     lrs_comb = np.concatenate(lrs_comb)
     if combine_features_flag:
         lrs_features = np.concatenate(lrs_features)
     y_all = np.concatenate(y_all)
+
+    with open('frida/predictions/predictions_per_repeat.json', 'w') as fp:
+        json.dump(results_to_save, fp)
 
     if plot is not None:
         plot(lrs_mfw, y_all, title=title, shortname=desc)
