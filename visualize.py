@@ -93,7 +93,7 @@ French
 
 
 def plot_this(arr, xlimits=None, ylimits=None):
-    col1, col2, col3 = st.beta_columns(3)
+    col1, col2, col3 = st.columns(3)
 
     fig1, ax1 = plt.subplots()
     ax1.hist(arr, bins=20)
@@ -145,7 +145,7 @@ plot_this(num_words, xlimits=(0, 2500), ylimits=(0, 4000))
 
 st.write('There are ', len(no_tokens), ' files with less than 20 tokens and ', len(no_words), ' files with less than 50 words')
 
-cols = st.beta_columns(2)
+cols = st.columns(2)
 cols[0].write('Files with few tokens: ')
 cols[0].write(no_tokens)
 cols[1].write('Files with few words: ')
@@ -176,7 +176,7 @@ if len(miss_to_check) > 0:
 st.header('Number of incomplete words')
 avg_to_string(num_incomplete)
 
-cols = st.beta_columns(2)
+cols = st.columns(2)
 cols[0].write('Files with incomplete words: ')
 input_incomplete = cols[0].text_input('Filter on given incomplete word (optional): ')
 incomplete_df = pd.DataFrame.from_dict(incomplete_to_check, orient='index', columns=['instances'])
@@ -193,7 +193,7 @@ cols[1].write(incomplete)
 st.header('Number of split words')
 avg_to_string(num_splits)
 
-cols = st.beta_columns(2)
+cols = st.columns(2)
 cols[0].write('Files with split words: ')
 input_split = cols[0].text_input('Filter on given split word (optional): ')
 split_df = pd.DataFrame.from_dict(splits_to_check, orient='index', columns=['instances'])
@@ -209,7 +209,7 @@ cols[1].write(splits)
 
 st.header('Tokens that include other symbols than letters, -, <, and >')
 st.write('Number of files with such tokens', len(other_to_check.keys()))
-cols = st.beta_columns(2)
+cols = st.columns(2)
 cols[0].write('Files with such tokens: ')
 input_token = cols[0].text_input('Filter on given token (optional): ')
 other_df = pd.DataFrame.from_dict(other_to_check, orient='index', columns=['instances'])
@@ -266,7 +266,7 @@ mf_df_rev = pd.DataFrame({'num of top words/bigrams': np.array([10, 50, 100, 150
                           'perc (words)': perc_mfw, 'perc (bigrams)': perc_mfbi})
 
 
-cols = st.beta_columns(2)
+cols = st.columns(2)
 cols[0].dataframe(mf_df)
 cols[1].dataframe(mf_df_rev)
 
@@ -275,7 +275,7 @@ freq_df_top = freq_df.head(input_top)
 freq_ldc_df_top = freq_ldc_df.head(input_top)
 freq_bbn_df_top = freq_bbn_df.head(input_top)
 freq_df_top = freq_df.head(input_top)
-cols = st.beta_columns(4)
+cols = st.columns(4)
 cols[0].write('Frequent words')
 cols[0].dataframe(freq_df_top)
 cols[1].write('Frequent words in ldc')
@@ -295,7 +295,7 @@ st.write('')
 st.write('There are ', len(list(set(ldc) - set(bbn)) + list(set(bbn) - set(ldc))),
          ' differences between the ldc list and the bbn list')
 if len(diff1) + len(diff1) > 0:
-    cols = st.beta_columns(2)
+    cols = st.columns(2)
     cols[0].write('Words that in ldc list but not in bbn: ')
     cols[0].write(diff1)
     cols[1].write('Words that in bbn list but not in ldc: ')
@@ -325,7 +325,7 @@ other_in_fw = find_ls1_elem_also_in_ls2(mf_list, list(other))
 st.write('There are ', len(split_in_fw), ' split words in the list')
 st.write('There are ', len(other_in_fw), ' words with other symbols than letters, -, <, and > in the list')
 
-cols = st.beta_columns(2)
+cols = st.columns(2)
 if len(split_in_fw) > 0:
     cols[0].write('Split-words in the frequent words:')
     cols[0].write(split_in_fw)
@@ -339,7 +339,9 @@ st.markdown("""
 words per speaker per conversation
 - incomplete words are excluded from deriving the most frequent word list but not from counting number of
 words per speaker per conversation
-- as a starting point no extra actions for contractions or general for handling apostrophes or dashes
+- no extra actions for contractions or for handling dashes
 - similar split words and non-english words stay as they are
-- again as a starting point, only conversations from LDC are taken into account in the analysis
+- split words count as one word
+- apostrophes in the beginning or end of a word are removed
+- only conversations from LDC are taken into account for deriving the most frequent words list
 """)
