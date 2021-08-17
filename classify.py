@@ -381,6 +381,7 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
                              max_n_of_pairs_per_class, preprocessor))):
 
         # keep pairs and flags for test per repeat
+        results_to_save[count]['train'] = y_train.tolist()
         results_to_save[count]['pairs'] = conv_pairs_test.tolist()
         results_to_save[count]['y'] = y_test.tolist()
 
@@ -402,7 +403,7 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         # take scores from mfw scorer and combine with voc output using logit then calibrate (for m2)
         mfw_scores_train = lir.apply_scorer(clf.scorer, X_train)
 
-        # scale voc_score to match the value range of the mfw clasifier (0-1)
+        # scale voc_score to match the value range of the mfw classifier (0-1)
         scaler = sklearn.preprocessing.MinMaxScaler()
         scaler.fit(X_voc_train.reshape(-1, 1))
         X_voc_train_norm = scaler.transform(X_voc_train.reshape(-1, 1)).T
@@ -415,9 +416,9 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         X_comb_test = np.vstack((np.squeeze(mfw_scores_test), X_voc_test_norm)).T
         lrs_comb.append(mfw_voc_clf.predict_lr(X_comb_test))
 
-        results_to_save[count]['lrs_mfw'] = lrs_mfw[0].tolist()
-        results_to_save[count]['lrs_voc'] = lrs_voc[0].tolist()
-        results_to_save[count]['lrs_comb'] = lrs_comb[0].tolist()
+        results_to_save[count]['lrs_mfw'] = lrs_mfw[count].tolist()
+        results_to_save[count]['lrs_voc'] = lrs_voc[count].tolist()
+        results_to_save[count]['lrs_comb'] = lrs_comb[count].tolist()
 
         # check type of scorer (for m3). In current setting, a distance scorer always has 1 step while a ML has 2
         if combine_features_flag:
@@ -429,7 +430,7 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
             X_test_onevector = np.column_stack((X_test_onevector, X_voc_test_norm.T))
             lrs_features.append(features_clf.predict_lr(X_test_onevector))
 
-            results_to_save[count]['lrs_feat'] = lrs_features
+            results_to_save[count]['lrs_feat'] = lrs_features[count].tolist()
 
     lrs_mfw = np.concatenate(lrs_mfw)
     lrs_voc = np.concatenate(lrs_voc)
@@ -446,7 +447,7 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
 
     mfw_res = calculate_metrics(lrs_mfw, y_all, full_list=all_metrics)
     voc_res = calculate_metrics(lrs_voc, y_all, full_list=all_metrics)
-    lrs_multi = np.multiply(lrs_mfw, lrs_voc, full_list=all_metrics)
+    lrs_multi = np.multiply(lrs_mfw, lrs_voc)
     lrs_multi_res = calculate_metrics(lrs_multi, y_all, full_list=all_metrics)
     comb_res = calculate_metrics(lrs_comb, y_all, full_list=all_metrics)
     if combine_features_flag:
@@ -574,7 +575,7 @@ def run(dataset, voc_data, resultdir):
     exp.parameter('n_frequent_words', 200)
     exp.addSearch('n_frequent_words', [50, 100, 200, 300], include_default=False)
 
-    exp.parameter('max_n_of_pairs_per_class', 2000)
+    exp.parameter('max_n_of_pairs_per_class', 2500)
     exp.addSearch('max_n_of_pairs_per_class', [500, 1000, 2000], include_default=False)
 
     exp.parameter('preprocessor', prep_gauss)
