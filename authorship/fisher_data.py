@@ -8,7 +8,6 @@ import numpy as np
 from nltk.tokenize import WhitespaceTokenizer
 from tqdm import tqdm
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.model_selection import train_test_split
 
 from boilerplate import fileio
 
@@ -16,12 +15,12 @@ LOG = logging.getLogger(__name__)
 
 
 class FisherDataSource:
-    def __init__(self, data, info, n_frequent_words=50, perc_speakers=0.05, min_words_in_conv=50):
+    def __init__(self, data, info, n_frequent_words=50, min_words_in_conv=50):
         self._n_freqwords = n_frequent_words  # number of frequent words
         self._data = data  # data location
         self._info = info  # file that connect a side of a conversation to a specific speaker
-        self._perc_speakers = perc_speakers  # perc of speaker used for the analysis (to be able to check our code in a smaller fraction of the dataset)
         self._min_words_in_conv = min_words_in_conv  # min number of words, a conversation should include
+        self._wordlist = []
 
     def _get_cache_path(self):
         filename_safe = re.sub('[^a-zA-Z0-9_-]', '_', self._data)
@@ -38,10 +37,10 @@ class FisherDataSource:
             store_data(speakers_path, speakers_wordlist)
 
         # extract a list of frequent words
-        wordlist = [word for word, freq in get_frequent_words(speakers_wordlist, self._n_freqwords)]
+        self._wordlist = [word for word, freq in get_frequent_words(speakers_wordlist, self._n_freqwords)]
 
         # build a dictionary of feature vectors
-        speakers_conv = filter_speakers_text(speakers_wordlist, wordlist, self._min_words_in_conv, self._perc_speakers)
+        speakers_conv = filter_speakers_text(speakers_wordlist, self._wordlist, self._min_words_in_conv)
 
         # convert to X, y
         X, y = to_vector_size(speakers_conv)
@@ -50,6 +49,10 @@ class FisherDataSource:
 
     def __repr__(self):
         return f'data(freqwords={self._n_freqwords})'
+
+    @property
+    def wordlist(self):
+        return self._wordlist
 
 
 class CreateFeatureVector:
@@ -94,6 +97,9 @@ def read_session(lines):
     tk = WhitespaceTokenizer()
     words = tk.tokenize(lines_to_words)
 
+    words = [re.sub(r'^\'', '', i) for i in words]  # remove ' from the beginning of a word
+    words = [re.sub(r'\'$', '', i) for i in words]  # remove ' from the end of a word
+
     return words
 
 
@@ -136,25 +142,30 @@ def get_frequent_words(speakers, n):
     :param speakers: dataset of speakers with the words they used
     :param n: int how many most frequent words will the output contain
     """
-    freq = collections.defaultdict(int)
+    freq_bbn = collections.defaultdict(int)
+    freq_ldc = collections.defaultdict(int)
     for sp, sp_words in speakers.items():
-        if bool(re.search('BBN', sp)):
-            continue
-        else:
-            for word in sp_words:
-                if not re.compile("[a-z].*-$").match(word):  # exclude incomplete words
-                    freq[word] += 1
+        for word in sp_words:
+            if not re.compile("[a-z].*-$").match(word):  # exclude incomplete words
+                if bool(re.search('BBN', sp)):
+                    freq_bbn[word] += 1
                 else:
-                    continue
-    freq = sorted(freq.items(), key=lambda x: x[1], reverse=True)
-    return freq[:n]
+                    freq_ldc[word] += 1
+            else:
+                continue
+    freq_bbn = sorted(freq_bbn.items(), key=lambda x: x[1], reverse=True)
+    freq_ldc = sorted(freq_ldc.items(), key=lambda x: x[1], reverse=True)
+
+    word_bbn = [i[0] for i in freq_bbn[:n]]
+    mfw = [item for item in freq_ldc[:n] if item[0] in word_bbn]
+
+    return mfw
 
 
-def filter_speakers_text(speakerdict, wordlist, min_words_in_conv, perc_speakers):
+def filter_speakers_text(speakerdict, wordlist, min_words_in_conv):
     """
     it returns dictionary, each key is a conversation and its values are the relative counts of the most freq words
     if the speaker appears once or they have less words than min_words_in_conv then they are excluded from the analysis
-    from the remaining speaker only the perc_speakers portion of them is used
 
     :param speakerdict: dict of all words used per speaker
     :param wordlist: the n most freq words in corpus
@@ -166,15 +177,12 @@ def filter_speakers_text(speakerdict, wordlist, min_words_in_conv, perc_speakers
     spk_ids_all = [k.split('_')[0] for k in speakerdict.keys()]  # keep only speaker id
     spk_with_occurrences = [v for v in np.unique(spk_ids_all) if spk_ids_all.count(v) > 1]
 
-    # keep a portion of the speakers
-    spk_drop, spk_keep = train_test_split(spk_with_occurrences, test_size=perc_speakers, random_state=5)
-
     filtered = {}
     for label, texts in speakerdict.items():
         LOG.debug('filter in subset {}'.format(label))
 
         n_words = len(texts)
-        if label.split('_')[0] in spk_drop or n_words < min_words_in_conv:
+        if label.split('_')[0] not in spk_with_occurrences or n_words < min_words_in_conv:
             continue
         else:
             texts = list(f(texts))
@@ -202,6 +210,6 @@ def to_vector_size(speakers):
 #
 # if __name__ == '__main__':
 #     cfg = confidence.load_name('..\\authorship', 'local')
-#     prova = FisherDataSource(cfg.fisher_data, cfg.fisher_data_info, n_frequent_words=5, perc_speakers=0.05)
+#     prova = FisherDataSource(cfg.fisher_data, cfg.fisher_data_info, n_frequent_words=5)
 #     X, y = prova.get()
 #     print(type('3'))

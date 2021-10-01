@@ -1,0 +1,3 @@
+data: fisher/fisher_trans.sha256
+data_info: fisher/info.txt
+resultdir: output/model

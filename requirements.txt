@@ -1,5 +1,5 @@
 confidence
-lir >= 0.0.5
+lir
 matplotlib
 numpy
 nltk
@@ -8,3 +8,7 @@ sklearn
 tqdm
 
 scikit-learn
+joblib
+streamlit
+pandas
+wordcloud

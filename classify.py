@@ -18,11 +18,12 @@ import json
 import scipy.spatial
 import scipy.stats
 from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+from sklearn.ensemble import GradientBoostingClassifier
 import sklearn.model_selection
 import sklearn.neighbors
 import sklearn.pipeline
 import sklearn.preprocessing
-import sklearn.svm
 from tqdm import tqdm
 from sklearn.metrics import roc_curve
 
@@ -251,16 +252,16 @@ class makeplots:
         LOG.info(
             f'  cllr, acc: {cllr, acc}')
 
-        path_prefix = os.path.join(self.path_prefix, shortname.replace('*', ''))
-        tippet_path = f'{path_prefix}_tippet.png' if self.path_prefix is not None else None
-        pav_path = f'{path_prefix}_pav.png' if self.path_prefix is not None else None
-        ece_path = f'{path_prefix}_ece.png' if self.path_prefix is not None else None
+        # path_prefix = os.path.join(self.path_prefix, shortname.replace('*', ''))
+        # tippet_path = f'{path_prefix}_tippet.png' if self.path_prefix is not None else None
+        # pav_path = f'{path_prefix}_pav.png' if self.path_prefix is not None else None
+        # ece_path = f'{path_prefix}_ece.png' if self.path_prefix is not None else None
 
-        kw_figure = {}
+        # kw_figure = {}
 
-        lir.plotting.plot_tippett(lrs, y, savefig=tippet_path, kw_figure=kw_figure)
-        lir.plotting.plot_pav(lrs, y, savefig=pav_path, kw_figure=kw_figure)
-        lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
+        # lir.plotting.plot_tippett(lrs, y, savefig=tippet_path, kw_figure=kw_figure)
+        # lir.plotting.plot_pav(lrs, y, savefig=pav_path, kw_figure=kw_figure)
+        # lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
 
 
 def get_pairs(X, y, authors_subset, sample_size):
@@ -279,13 +280,17 @@ def get_batch_simple(X, y, repeats, max_n_of_pairs_per_class):
 
         sample_size = 2 * max_n_of_pairs_per_class
         X_train, y_train = get_pairs(X, y, authors_train, sample_size)
-        X_test, y_test = get_pairs(X, y, authors_test, sample_size)
+        print('train same: ', int(np.sum(y_train)))
+        print('train diff: ', int(y_train.size - np.sum(y_train)))
+        X_test, y_test = get_pairs(X, y, authors_test, 4000)
+        print('test same: ', int(np.sum(y_test)))
+        print('test diff: ', int(y_test.size - np.sum(y_test)))
 
         yield X_train, y_train, X_test, y_test
 
 
 def evaluate_samesource(desc, dataset, n_frequent_words, max_n_of_pairs_per_class, preprocessor, classifier, calibrator,
-                        plot=None, repeats=1, extra_file=None, perc_speakers=0.05, min_words_in_conv=50):
+                        plot=None, repeats=1, extra_file=None, min_words_in_conv=50):
     """
     Run an experiment with the parameters provided.
 
@@ -299,12 +304,11 @@ def evaluate_samesource(desc, dataset, n_frequent_words, max_n_of_pairs_per_clas
     :param repeats: int: the number of times the experiment is run
     :return: a CLLR
     """
-    # calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
     clf = lir.CalibratedScorer(classifier, calibrator)
 
     if 'fisher' in dataset:
         ds = fisher_data.FisherDataSource(dataset, extra_file, n_frequent_words=n_frequent_words,
-                                          perc_speakers=perc_speakers, min_words_in_conv=min_words_in_conv)
+                                          min_words_in_conv=min_words_in_conv)
         X, y = ds.get()
     else:
         ds = data.DataSource(dataset, n_frequent_words=n_frequent_words)
@@ -335,21 +339,14 @@ def evaluate_samesource(desc, dataset, n_frequent_words, max_n_of_pairs_per_clas
         plot(lrs, y_all, title=title, shortname=desc)
 
     cllr = lir.metrics.cllr(lrs, y_all)
-    # cllrmin = lir.metrics.cllr_min(lrs, y_all)
-    # cllrcal = cllr - cllrmin
     acc = np.mean((lrs > 1) == y_all)
     recall = np.mean(lrs[y_all == 1] > 1) # true positive rate
     precision = np.mean(y_all[lrs > 1] == 1)
-    # tnr = np.mean(lrs[y_all == 0] < 1) # true negative rate
-    # mean_logLR_diff = np.mean(np.log(lrs[y_all == 0]))
-    # mean_logLR_same = np.mean(np.log(lrs[y_all == 1]))
 
     fpr, tpr, threshold = roc_curve(list(y_all), list(lrs), pos_label=1)
     fnr = 1 - tpr
     eer = fpr[np.nanargmin(np.absolute((fnr - fpr)))]
 
-    # Metrics = collections.namedtuple('Metrics', ['cllr', 'cllrmin', 'cllrcal', 'accuracy', 'eer', 'recall', 'tnr',
-    #                                              'precision', 'mean_logLR_diff', 'mean_logLR_same'])
     Metrics = collections.namedtuple('Metrics', ['cllr', 'accuracy', 'eer', 'recall', 'precision'])
 
     return Metrics(cllr, acc, eer, recall, precision), lrs, y_all
@@ -400,34 +397,30 @@ def run(dataset, resultdir, extra_data_file=None):
 
     ### CLASSIFIERS
 
-    dist_br = sklearn.pipeline.Pipeline([
-        ('dist:bray', VectorDistance(scipy.spatial.distance.braycurtis)),
-    ])
-
-    dist_ma = sklearn.pipeline.Pipeline([
-        ('dist:man', VectorDistance(scipy.spatial.distance.cityblock)),
-    ])
-
-    logit = sklearn.pipeline.Pipeline([
+    man_logit = sklearn.pipeline.Pipeline([
         ('diff:abs', transformers.AbsDiffTransformer()),
         ('clf:logit', LogisticRegression(max_iter=600, class_weight='balanced')),
     ])
 
-    logit_br = sklearn.pipeline.Pipeline([
+    br_logit = sklearn.pipeline.Pipeline([
         ('bray', BrayDistance()),
         ('clf:logit', LogisticRegression(class_weight='balanced')),
     ])
 
-    svc = sklearn.pipeline.Pipeline([
+    man_svc_lin = sklearn.pipeline.Pipeline([
         ('diff:abs', transformers.AbsDiffTransformer()),
-        # ('diff:shan', ShanDistanceVector()),
-        # ('diff:bray', BrayDistance()),
-        ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
+        ('clf:svc', SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
     ])
 
-    svc_br = sklearn.pipeline.Pipeline([
+    br_svc_linear = sklearn.pipeline.Pipeline([
         ('diff:bray', BrayDistance()),
-        ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
+        ('scaler', sklearn.preprocessing.StandardScaler()),
+        ('clf:svc', SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
+    ])
+
+    br_xgb = sklearn.pipeline.Pipeline([
+        ('diff:bray', BrayDistance()),
+        ('clf:xgb', GradientBoostingClassifier(n_estimators=100, learning_rate=1.0, max_depth=4, random_state=0)),
     ])
 
     exp = experiments.Evaluation(evaluate_samesource, partial(aggregate_results, resultdir))
@@ -437,27 +430,24 @@ def run(dataset, resultdir, extra_data_file=None):
     exp.parameter('extra_file', extra_data_file)
 
     exp.parameter('min_words_in_conv', 50)
-    exp.parameter('perc_speakers', 0.2)
 
-    exp.parameter('n_frequent_words', 200)
-    exp.addSearch('n_frequent_words', [50, 100, 200, 300], include_default=False)
+    exp.parameter('n_frequent_words', 500)
+    exp.addSearch('n_frequent_words', [200, 500, 1000], include_default=False)
 
-    exp.parameter('max_n_of_pairs_per_class', 5000)
-    exp.addSearch('max_n_of_pairs_per_class', [500, 1000, 2000], include_default=False)
+    exp.parameter('max_n_of_pairs_per_class', 15000)
+    exp.addSearch('max_n_of_pairs_per_class', [5000, 10000, 15000, 20000], include_default=False)
 
     exp.parameter('preprocessor', prep_gauss)
 
-    exp.parameter('classifier', ('bray_logit', logit_br))
-    exp.addSearch('classifier', [('dist_man', dist_ma), ('dist_bray', dist_br), ('man_logit', logit),
-                                 ('bray_logit', logit_br), ('man_svc', svc),
-                                 ('bray_svc', svc_br)], include_default=False)
+    exp.parameter('classifier', ('bray_logit', br_logit))
+    exp.addSearch('classifier', [('bray_logit', br_logit), ('man_logit', man_logit)], include_default=False)
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
-    exp.parameter('repeats', 10)
+    exp.parameter('repeats', 50)
 
     try:
         exp.runDefaults()
-        # exp.runSearch('max_n_of_pairs_per_class')
+        # exp.runSearch('classifier')
         # exp.runFullGrid(['n_frequent_words', 'classifier'])
 
     except Exception as e:

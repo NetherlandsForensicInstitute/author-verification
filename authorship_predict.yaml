@@ -1,0 +1,4 @@
+data: roxsd/roxsd_non_target.sha256
+pairsdir: roxsd/trials_list_eng.txt
+modeldir: output/model/n_freq_words=500_pop_gauss_diff_bray_clf_logit
+resultdir: output/model/n_freq_words=500_pop_gauss_diff_bray_clf_logit/predictions

@@ -44,7 +44,7 @@ st.set_page_config(layout="wide")
 st.title('FISHER data')
 st.markdown("""---""")
 
-st.write('Number of conversations = ', len(transcriber))
+st.write('Number of files = ', len(transcriber))
 
 st.write('Number of speakers = ', sum(np.array([4473, 3728, 3636, 115, 14, 4, 1])))
 st.write('Number of speakers with more than 1 utterance = ', sum(np.array([3728, 3636, 115, 14, 4, 1])))
@@ -61,33 +61,36 @@ st.write('Number of conversations transcribed by BBN: ', sum(transcriber == 'bbn
 
 st.subheader('Notes on the transcriptions:')
 st.markdown("""
-- no capitals (with a few exceptions)
+- no capitals (with a few exceptions, probably accidentally)
 - e.g., L.A. (Los Angeles) is transcribed as: l._a.
-- letters are transcribed as the letter followed by a dot, e.g., www is given as w. w. w. and the spelling of store as
-s. t. o. r. e.
-- (( $~$ )) unclear utterance, mainly used in ldc --> <UNK>
-- (( $~$text$~$ )) best estimate by transcriber for LDC/when manual and automatic transcriptions differed significantly
-for BBN --> <GUESS>
-- [type of noise] for noises such as laughter, mostly found in bbn --> <SOUND>
-- the conversations are mostly in English, but one might spot other languages as well, e.g., fe_03_00265-(ab) includes
+- letters are transcribed as the letter itself followed by a dot, e.g., www is given as w. w. w. and the spelling of 
+store as s. t. o. r. e.
+- numbers are spelled out (with few exceptions, e.g., 90210 in fe_03_02495-a and 401k plan in several files such as fe_03_01984-(ab))
+- (( $~$ )) denotes unclear utterance. Mainly used by LDC, on average 3.38 instances per file vs 0.05 by BBN --> <UNK>
+- (( $~$text$~$ )) best estimate by transcriber for LDC or when manual and automatic transcriptions differed 
+significantly for BBN. Mostly found in BBN, on average 13.18 instances per file vs 1.31 in LDC --> <GUESS>
+- [type of noise] for noises such as laughter. Mostly spotted in BBN, on average 20.76 instances per file vs 0.33 in LDC
+ --> <SOUND>
+- the conversations are mainly in English, but one might spot other languages as well, e.g., fe_03_00265-(ab) includes
 French
 - in 8 files (e.g., fe_03_00041-a, fe_03_00082-(ab), fe_03_00238-a), all transcribed by LDC, one can spot: '[[skip]]'
 --> <SKIP>
-- Apostrophe (') seems to be used for the following cases:
+- apostrophe (') seems to be used for the following cases:
     - for contractions (i'm, aren't, there's)
-    - to mention a specific word, e.g., 'absolutely' in fe_03_01296-a [... crazy with the word 'absolutely']
-    - to refer to a phrase or quote someone, e.g., in fe_03_07334-b [... on the other line 'here's how you can fix it'],
-    and in fe_03_08839-b [... or whomever say 'here it comes']
+    - to mention a specific word, e.g., 'absolutely' in fe_03_01296-a [... crazy with the word 'absolutely' ...]
+    - to refer to a phrase or quote someone, e.g., in fe_03_07334-b [... on the other line 'here's how you can fix it' ...],
+    and in fe_03_08839-b [... or whomever say 'here it comes' ...]
     - to denote a half spoken word, e.g, 'xactly in fe_03_08910-b and 'member in fe_03_05739-a. BBN used extensively to
     denote 'cause while there is no such instance in LDC
-- Dash (-) used for the following:
-    - for split words such as 'father-in-law', 'make-up', 'no-one', and 'bye-bye' (not clear if the transcription of
+- dash (-) used for the following:
+    - for split words such as 'father-in-law', 'make-up', 'no-one', and 'bye-bye' (unclear if the transcription of
     such words is consistent throughout)
     - as hesitation marks e.g., y-you and i-i (which are included in the split word list)
     - for incomplete words, e.g., par- and sophis-
-    - some times it looks that it is used also for "incomplete" sentences (e.g., '... each-' in fe_03_01463-b,
-    '... actually-' in fe_03_04706, and '... personal-' in fe_03_06746)
-- numbers are written out, e.g., seventy-five in fe_03_03524-b (with a few exceptions)
+    - for incomplete sentences (e.g., '... each-' in fe_03_01463-b, '... actually-' in fe_03_04706, and '... personal-' 
+    in fe_03_06746)
+    - for numbers with "two" parts, e.g., 75 is spelled out as seventy-five in fe_03_03524-b
+- in three files one can observe the following symbols: tilde (~) in fe_03_10677-b and asterisk (*) in fe_03_00331-(ab)
 
 """)
 
@@ -121,9 +124,15 @@ def plot_this(arr, xlimits=None, ylimits=None):
 
 def percentiles_to_string(arr):
     temp = np.percentile(arr, range(0, 101, 10))
-    to_print = str(temp[0]) + ', ' + str(temp[1]) + ', ' + str(temp[2]) + ', ' + str(temp[3]) + ', ' + str(temp[4]) + \
-               ', --' + str(temp[5]) + '--, ' + str(temp[6]) + ', ' + str(temp[7]) + ', ' + str(temp[8]) + ', ' \
-               + str(temp[9]) + ', ' + str(temp[10])
+    to_print = ''
+    for i in range(0, 11):
+        if i == 5:
+            to_print = to_print + '-- ' + str(round(temp[i], 1)) + ' --, '
+        elif i == 10:
+            to_print = to_print + str(round(temp[i], 1))
+        else:
+            to_print = to_print + str(round(temp[i], 1)) + ', '
+
     st.write('percentiles: [min, 10%, 20%, 30%, 40%, --median--, 60%, 70%, 80%, 90%, max] = [' + to_print + ']')
 
 
@@ -143,7 +152,7 @@ percentiles_to_string(num_words)
 plot_this(num_words, xlimits=(0, 2500), ylimits=(0, 4000))
 
 
-st.write('There are ', len(no_tokens), ' files with less than 20 tokens and ', len(no_words), ' files with less than 50 words')
+st.write('There are ', len(no_tokens), ' files with less than 20 tokens and ', len(no_words), ' files with less than 20 words')
 
 cols = st.columns(2)
 cols[0].write('Files with few tokens: ')
@@ -213,7 +222,7 @@ cols = st.columns(2)
 cols[0].write('Files with such tokens: ')
 input_token = cols[0].text_input('Filter on given token (optional): ')
 other_df = pd.DataFrame.from_dict(other_to_check, orient='index', columns=['instances'])
-if input_split == '':
+if input_token == '':
     cols[0].dataframe(other_df)
 else:
     cols[0].dataframe(other_df[other_df['instances'].str.contains(input_token)])
@@ -292,9 +301,8 @@ diff1 = list(set(ldc) - set(bbn))
 diff2 = list(set(bbn) - set(ldc))
 
 st.write('')
-st.write('There are ', len(list(set(ldc) - set(bbn)) + list(set(bbn) - set(ldc))),
-         ' differences between the ldc list and the bbn list')
-if len(diff1) + len(diff1) > 0:
+st.write('There are ', len(diff1 + diff2), ' differences between the ldc list and the bbn list')
+if len(diff1) + len(diff2) > 0:
     cols = st.columns(2)
     cols[0].write('Words that in ldc list but not in bbn: ')
     cols[0].write(diff1)
@@ -335,13 +343,14 @@ if len(other_in_fw) > 0:
 
 st.header('Decisions')
 st.markdown("""
-- <UNK>, <GUESS>, <SOUND>, <SKIP> are excluded from deriving the most frequent word list and from counting the number of
-words per speaker per conversation
+- only speakers with 2 or more utterances are considered for this analysis
+- <UNK>, <GUESS>, <SOUND>, <SKIP> are excluded from the whole analysis
 - incomplete words are excluded from deriving the most frequent word list but not from counting number of
 words per speaker per conversation
 - no extra actions for contractions or for handling dashes
 - similar split words and non-english words stay as they are
 - split words count as one word
 - apostrophes in the beginning or end of a word are removed
-- only conversations from LDC are taken into account for deriving the most frequent words list
+- for deriving the most frequent words list, we derive separately a list based on the LDC and on the BBN and we take the
+inner join of those two lists
 """)
