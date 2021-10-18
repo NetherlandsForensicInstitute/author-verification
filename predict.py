@@ -21,7 +21,6 @@ import sklearn.pipeline
 import sklearn.preprocessing
 
 from authorship import roxsd_data
-from authorship import fisher_data
 from authorship import experiments
 from sklearn.metrics import roc_curve
 
@@ -102,13 +101,13 @@ def predict_samesource(desc, dataset, modeldir, resultdir, pairsdir=None, min_wo
 
     assert X.shape[0] > 0
 
-    with open(f'{modeldir}/preprocessor.pkl', 'rb') as f:
-        preprocessor1 = pickle.load(f)
-    X1 = preprocessor1.transform(X)
+    # with open(f'{modeldir}/preprocessor.pkl', 'rb') as f:
+    #     preprocessor1 = pickle.load(f)
+    # X1 = preprocessor1.transform(X)
 
-    # with open(f'{modeldir}/preprocessor.sav', 'rb') as f:
-    #     preprocessor2 = pickle.load(f)
-    # X2 = preprocessor2.transform(X)
+    with open(f'{modeldir}/preprocessor.sav', 'rb') as f:
+        preprocessor2 = pickle.load(f)
+    X1 = preprocessor2.transform(X)
     #
     # preprocessor3 = joblib.load(f'{modeldir}/preprocessor.mod')
     # X3 = preprocessor3.transform(X)
@@ -135,6 +134,7 @@ def predict_samesource(desc, dataset, modeldir, resultdir, pairsdir=None, min_wo
 
     Metrics = collections.namedtuple('Metrics', ['cllr', 'accuracy', 'eer', 'recall', 'precision', 'tnr'])
     results = Metrics(cllr, acc, eer, recall, precision, tnr)
+    print(f'{desc}: {results._fields} = {list(np.round(results, 3))}')
 
     res = {'metrics': results, 'lrs': lrs.tolist(), 'y_pair': y_pairs.tolist(), 'conv_pair_ids': conv_pairs.tolist()}
 
@@ -153,7 +153,7 @@ def run(dataset, modeldir, resultdir, pairsdir=None):
     exp.parameter('resultdir', resultdir)
     exp.parameter('modeldir', modeldir)
 
-    exp.parameter('min_words_in_conv', 10)
+    exp.parameter('min_words_in_conv', 25)
 
     try:
         exp.runDefaults()

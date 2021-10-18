@@ -94,8 +94,12 @@ def train_samesource(desc, dataset, n_frequent_words, max_n_of_pairs_per_class, 
     X = preprocessor.fit_transform(X)
 
     # preprocessor - try 1
-    with open(f'{path}/preprocessor.pkl', 'wb') as f:
-        pickle.dump(preprocessor, f)
+    try:
+        with open(f'{path}/preprocessor.pkl', 'wb') as f:
+            pickle.dump(preprocessor, f)
+    except Exception as e:
+        print(e)
+        raise
 
     with open(f'{path}/preprocessor.sav', 'wb') as f:
         pickle.dump(preprocessor, f)

@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import numpy as np
+import pandas as pd
 
 from nltk.tokenize import WhitespaceTokenizer
 from tqdm import tqdm
@@ -37,7 +38,12 @@ class FisherDataSource:
             store_data(speakers_path, speakers_wordlist)
 
         # extract a list of frequent words
-        self._wordlist = [word for word, freq in get_frequent_words(speakers_wordlist, self._n_freqwords)]
+        # self._wordlist = [word for word, freq in get_frequent_words(speakers_wordlist, self._n_freqwords)]
+        words = pd.read_csv('.\\output\\model\\fisher_vs_roxsd_600.csv')
+        # & (words['weighted_mean_diff'] < 0.8)
+        words = words[(words['roxsd_valid']) & (words['filler_word'] == 0) &
+                      (words['order'] <= self._n_freqwords)]
+        self._wordlist = words['word'].tolist()
 
         # build a dictionary of feature vectors
         speakers_conv = filter_speakers_text(speakers_wordlist, self._wordlist, self._min_words_in_conv)

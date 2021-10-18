@@ -85,18 +85,17 @@ def clean_text(lines_to_words):
     lines_to_words = lines_to_words.lower()
     lines_to_words = lines_to_words.replace('\n', ' ')
     lines_to_words = re.sub('[.,?!]', '', lines_to_words)
-    lines_to_words = re.sub('(ok)', ' okay ', lines_to_words)
-    lines_to_words = lines_to_words.replace('cannot', 'can\'t').replace('thats', 'that\'s')
     lines_to_words = re.sub('\u00B4', '\'', lines_to_words)
-    lines_to_words = lines_to_words.replace('(unclear utterance)', '').replace('(short laugh)', '')
-    lines_to_words = lines_to_words.replace('(laughter)', '').replace('(laugter)', '')
-    lines_to_words = lines_to_words.replace('(haha)', '').replace('(ha)', '')
-    lines_to_words = lines_to_words.replace('(ugh)', ' uh ').replace('(uhm)', ' um ')
-    lines_to_words = lines_to_words.replace('(aha)', ' uh-huh ').replace('(ahah)', ' uh-huh ')
-    lines_to_words = lines_to_words.replace('(oho)', ' oh ').replace('(ohoo)', ' oh ')
-    lines_to_words = re.sub('\([a-z]{1}\)', '', lines_to_words)
-    lines_to_words = re.sub('\(y[ae]{1,3}h\)', ' yeah ', lines_to_words)
-    lines_to_words = lines_to_words.replace('(yea)', ' yeah ')
+    lines_to_words = re.sub('(ok)', ' okay ', lines_to_words)
+    lines_to_words = lines_to_words.replace('cannot', 'can\'t').replace('thats', 'that\'s').replace('(mm)', ' mm ')
+    lines_to_words = re.sub('\(u[hm]{0,1}m\)', ' um ', lines_to_words)
+    lines_to_words = re.sub('\(u[g]{0,1}h\)', ' uh ', lines_to_words)
+    lines_to_words = re.sub('\(hm[m]{0,1}\)', ' hm ', lines_to_words)
+    lines_to_words = re.sub('\(ah[h]{0,1}\)', ' ah ', lines_to_words)
+    lines_to_words = re.sub('\(aha[h]{0,1}\)', ' uh-huh ', lines_to_words)
+    lines_to_words = re.sub('\(oh[o]{0,2}\)', ' oh ', lines_to_words)
+    lines_to_words = re.sub('\(y[ae]{1,3}[h]{0,1}\)', ' yeah ', lines_to_words)
+    lines_to_words = re.sub('\([a-z\s].*\)', '', lines_to_words)
     lines_to_words = lines_to_words.replace('(', ' ').replace(')', ' ')
 
     return lines_to_words
@@ -110,22 +109,16 @@ def compile_data(index_path):
 
         with fileio.sha256_open(os.path.join(basedir, filepath), digest, on_mismatch='warn') as f:
 
-            right_speaker = '_A'
-            left_speaker = '_B'
             lines = f.readlines()
             for i, line in enumerate(lines):
                 info = re.split(r'\t+', line)
                 if len(info) < 5:
                     continue
 
-                if i == 0 and info[3] == 'L':
-                    right_speaker = '_B'
-                    left_speaker = '_A'
-
-                if info[3] == 'R':
-                    spk_id = info[0] + right_speaker + ';' + info[4]
+                if info[3] == 'L':
+                    spk_id = info[0] + '_A' + ';' + info[4]  # L and A stands for caller
                 else:
-                    spk_id = info[0] + left_speaker + ';' + info[4]
+                    spk_id = info[0] + '_B' + ';' + info[4]  # R and B stands for receiver
 
                 lines_to_words = clean_text(info[5])
 

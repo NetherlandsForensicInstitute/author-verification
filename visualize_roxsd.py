@@ -35,7 +35,7 @@ st.markdown("""
     i'll and i will. Unclear, if this is based on what the speaker said or the transcriber's style. There are cases
     where acute accent (´) has been used instead.
     - dash (-) for split words and as a hesitation marker
-- (text) used for:
+- The notation (text) used for:
     - sounds, e.g., haha, 
     - description of a sound, e.g., laughter, 
     - filler words, e.g., yeah
@@ -69,7 +69,7 @@ st.write('Number of files (2 * num of conversations) = ', len(num_tokens))
 st.write('Number of speakers = ', sum(ids_counts))
 
 st.write(pd.DataFrame({
-    '# of utterances per spk': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    '# of utterances per spk': [i+1 for i in range(len(ids_counts))],
     '# of speakers': ids_counts,
 }))
 
@@ -188,16 +188,20 @@ st.markdown("""
 - Everything was converted to lowercase.
 - Dots, commas, question marks, explanation marks were removed for this analysis.
 - Apostrophes and dashes (') remained as is. Acute accent (´) has been replaced with an apostrophe.
-- The following remarks (noted within parentheses) were removed: (unclear utterance), (short laugh), (laughter),
-(laugter), (haha), (ha), also single letters within parentheses, e.g., (a)
-- Parentheses were replaced with space to avoid different words merged to one, e.g, "to(um)" changed to "to um "
 - To match the spelling in FISHER, the following words were replaced:
     - "ok" --> "okay" 
     - "cannot" --> "can\'t"
     - "thats" --> "that\'s'
-    - "ugh" --> "uh" 
-    - "uhm" --> " um"
-    - "aha" and "ahah" --> "uh-huh"
-    - "oho" and "ohoo" --> "oh"
-    - different spelling of "yeah",such as "yeaaah", were converted to "yeah"
+    - "y[ae]{1,3}[h]{0,1}" --> "yeah"
+    - "u[g]{0,1}h" --> "uh" 
+    - "u[hm]{0,1}m" --> " um"
+    - "aha[h]{0,1}" --> "uh-huh"
+    - "oh[o]{0,2}" --> "oh"
+    - "hm[m]{0,1}" --> "hm"
+    - "ah[h]{0,1}" --> "ah"
+    - "mm" --> "mm"
+- Anything within parethenses that does not match any pattern above were removed, e.g., (unclear utterance), (laughter),
+(haha), (ha), (a)
+- (any leftover) parentheses were replaced with space to avoid different words merged to one, e.g, "to(um)" changed 
+to "to um "
 """)

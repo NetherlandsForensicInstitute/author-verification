@@ -34,7 +34,10 @@ freq = collections.defaultdict(int)
 if __name__ == '__main__':
     for k, v in tqdm(all_data.items()):
 
-        ids.append(k.split("_", 1)[1])
+        if prep_clean_data:
+            ids.append(k.split(";", 1)[1])
+        else:
+            ids.append(k.split("_", 1)[1])
 
         num_tokens.append(len(v))
 
