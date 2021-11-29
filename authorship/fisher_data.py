@@ -186,6 +186,9 @@ def filter_speakers_text(speakerdict, wordlist, min_words_in_conv):
     filtered = {}
     for label, texts in speakerdict.items():
         LOG.debug('filter in subset {}'.format(label))
+        # words_to_exclude = ['yeah', 'um', 'uh', 'okay', 'oh', 'ah', 'mhm', 'uh-huh', 'er', 'em', 'huh', 'mm', 'yep',
+        #                     'hm', 'yea', 'ya', 'eh']
+        # texts = [word for word in texts if word not in words_to_exclude]
 
         n_words = len(texts)
         if label.split('_')[0] not in spk_with_occurrences or n_words < min_words_in_conv:

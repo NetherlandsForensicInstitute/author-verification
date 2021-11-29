@@ -19,6 +19,7 @@ import scipy.stats
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import roc_curve, roc_auc_score
+from tqdm import tqdm
 import sklearn.model_selection
 import sklearn.neighbors
 import sklearn.pipeline
@@ -61,6 +62,33 @@ class BrayDistance(sklearn.base.TransformerMixin):
         return np.abs(right - left) / (np.abs(right + left) + 1)
 
 
+def get_batch_simple(X, y, conv_ids, repeats, pairs=None, max_n_of_pairs_per_class=None):
+    for i in range(repeats):
+        authors = np.unique(y)
+        authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.71, random_state=i)
+
+        X_sub_train = X[np.isin(y, authors_train), :]
+        y_sub_train = y[np.isin(y, authors_train)]
+        conv_ids_sub_train = conv_ids[np.isin(y, authors_train)]
+
+        X_train, y_train, conv_train = get_pairs(X_sub_train, y_sub_train, conv_ids_sub_train, pairs,
+                                                 max_n_of_pairs_per_class)
+
+        X_sub_test = X[np.isin(y, authors_test), :]
+        y_sub_test = y[np.isin(y, authors_test)]
+        conv_ids_sub_test = conv_ids[np.isin(y, authors_test)]
+
+        X_test, y_test, conv_test = get_pairs(X_sub_test, y_sub_test, conv_ids_sub_test, pairs,
+                                              max_n_of_pairs_per_class)
+
+        print('train same: ', int(np.sum(y_train)))
+        print('train diff: ', int(y_train.size - np.sum(y_train)))
+        print('test same: ', int(np.sum(y_test)))
+        print('test diff: ', int(y_test.size - np.sum(y_test)))
+
+        yield X_train, y_train, conv_train, X_test, y_test, conv_test
+
+
 def get_pairs(X, y, conv_ids, pairs=None, sample_size=None):
     # pair instances: same source and different source
 
@@ -100,7 +128,7 @@ def get_pairs(X, y, conv_ids, pairs=None, sample_size=None):
 
 def train_and_predict(desc, dataset_train, dataset_val, n_frequent_words, max_n_of_pairs_per_class, preprocessor,
                       classifier, calibrator, resultdir, extra_file_train=None, pairsdir_val=None,
-                      min_words_in_conv=50):
+                      min_words_in_conv=50, repeats=1):
     """
     TODO: update the description
     Train on train set and apply on validation set
@@ -140,8 +168,6 @@ def train_and_predict(desc, dataset_train, dataset_val, n_frequent_words, max_n_
     X, y = transformers.InstancePairing(same_source_limit=max_n_of_pairs_per_class,
                                         different_source_limit=max_n_of_pairs_per_class).transform(X, y)
     clf.fit(X, y)
-    # bray = BrayDistance()
-    # X_fisher = bray.transform(X)
 
     # load and prep roxsd_data
     ds_val = roxsd_data.RoxsdDataSource(dataset_val, path, min_words_in_conv=min_words_in_conv)
@@ -150,16 +176,30 @@ def train_and_predict(desc, dataset_train, dataset_val, n_frequent_words, max_n_
     assert X_val.shape[0] > 0
 
     X_val = preprocessor.transform(X_val)
-    X_pairs, y_pairs, conv_pairs = get_pairs(X_val, y_val, conv_ids_val, pairsdir_val)
 
-    # X_roxsd = bray.transform(X_pairs)
+    if repeats == 1:
+        X_pairs, y_pairs, conv_pairs = get_pairs(X_val, y_val, conv_ids_val, pairsdir_val)
+        lrs = clf.predict_lr(X_pairs)
+    if repeats > 1:
+        lrs = []
+        y_all = []
+        spec_cal = lir.ScalingCalibrator(lir.KDECalibrator())
+        for X_train, y_train, conv_train, X_test, y_test, conv_test in tqdm(get_batch_simple(X_val, y_val, conv_ids_val,
+                                                                                             repeats, pairsdir_val)):
+            scores_train = lir.apply_scorer(clf.scorer, X_train)
+            spec_cal.fit(X=scores_train, y=y_train)
+            scores_test = lir.apply_scorer(clf.scorer, X_test)
+            lrs.append(spec_cal.transform(scores_test))
+            y_all.append(y_test)
+        lrs = np.concatenate(lrs)
+        y_pairs = np.concatenate(y_all)
 
-    lrs = clf.predict_lr(X_pairs)
 
     # with lir.plotting.savefig(f'{resultdir}/pav.png') as ax:
     #     ax.pav(lrs, y_pairs)
 
     cllr = lir.metrics.cllr(lrs, y_pairs)
+    cllr_min = lir.metrics.cllr_min(lrs, y_pairs)  # discrimination power
     acc = np.mean((lrs > 1) == y_pairs)
     recall = np.mean(lrs[y_pairs == 1] > 1)  # true positive rate
     precision = np.mean(y_pairs[lrs > 1] == 1)
@@ -169,8 +209,8 @@ def train_and_predict(desc, dataset_train, dataset_val, n_frequent_words, max_n_
     fnr = 1 - tpr
     eer = fpr[np.nanargmin(np.absolute((fnr - fpr)))]
     auc = roc_auc_score(list(y_pairs), list(lrs))
-    Metrics = collections.namedtuple('Metrics', ['cllr', 'accuracy', 'eer', 'auc', 'recall', 'precision', 'tnr'])
-    results = Metrics(cllr, acc, eer, auc, recall, precision, tnr)
+    Metrics = collections.namedtuple('Metrics', ['cllr', 'accuracy', 'eer', 'auc', 'recall', 'precision', 'tnr', 'cllr_min'])
+    results = Metrics(cllr, acc, eer, auc, recall, precision, tnr, cllr_min)
 
     print(f'{desc}: {results._fields} = {list(np.round(results, 3))}')
 
@@ -215,6 +255,7 @@ def run(dataset_train, dataset_val, resultdir, extra_file_train=None, pairsdir_v
     exp.parameter('min_words_in_conv', 10)
     exp.parameter('n_frequent_words', 100)
     exp.parameter('max_n_of_pairs_per_class', 20000)
+    exp.parameter('repeats', 1)
 
     exp.parameter('preprocessor', prep_gauss)
     exp.parameter('classifier', ('br_logit', br_logit))

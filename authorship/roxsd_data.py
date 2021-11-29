@@ -145,12 +145,18 @@ def filter_speakers_text(speakerdict, wordlist, min_words_in_conv):
     """
     f = CreateFeatureVector(wordlist)
 
+    # keep speakers with 2 or more conversations (not valid)
+    spk_ids_all = [k.split(';')[1] for k in speakerdict.keys()]  # keep only speaker id
+    spk_with_occurrences = [v for v in np.unique(spk_ids_all) if spk_ids_all.count(v) < 4]
+    # print(spk_with_occurrences)
+
     filtered = {}
     for label, texts in speakerdict.items():
         LOG.debug('filter in subset {}'.format(label))
 
         n_words = len(texts)
-        if n_words > min_words_in_conv:
+        # and label.split(';')[1] in spk_with_occurrences
+        if n_words > min_words_in_conv and label.split(';')[1] in spk_with_occurrences:
             texts = list(f(texts))
             filtered[label] = [100 * i / n_words for i in texts]
 

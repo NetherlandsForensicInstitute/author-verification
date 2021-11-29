@@ -106,10 +106,14 @@ for i in range(l):
 st.header('checking predictions')
 
 cols = st.columns(2)
-lan_size = res_df.groupby(['native_language1', 'native_language2', 'label']).size().reset_index(name='size')
-lan_df = res_df.groupby(['native_language1', 'native_language2', 'label']).\
-    apply(lambda x: x['correct_pred'].sum()/len(x)).reset_index(name='correct_perc')
-lan_df = lan_df.merge(lan_size, on=['native_language1', 'native_language2', 'label'])
+res_df['languages'] = res_df[['native_language1', 'native_language2']].values.tolist()
+res_df['languages'] = res_df['languages'].agg(sorted)
+res_df['languages'] = res_df['languages'].agg(str)
+
+
+lang_pairs_size = res_df.groupby(['languages', 'label']).size().reset_index(name='size')
+lan_df = res_df.groupby(['languages', 'label']).apply(lambda x: x['correct_pred'].sum()/len(x)).reset_index(name='correct_perc')
+lan_df = lan_df.merge(lang_pairs_size, on=['languages', 'label'])
 cols[1].dataframe(lan_df)
 
 lan_size1 = res_df.groupby(['same_language', 'label']).size().reset_index(name='size')
@@ -118,21 +122,22 @@ lan_df1 = res_df.groupby(['same_language', 'label']).\
 lan_df1 = lan_df1.merge(lan_size1, on=['same_language', 'label'])
 cols[0].dataframe(lan_df1)
 
-# group_to_check = st.radio('Select group:', ['same speaker', 'same speaker - wrong prediction',
-#                                             'same speaker - correct prediction', 'diff speaker',
-#                                             'diff speaker - wrong prediction', 'diff speaker - correct prediction',
-#                                             'all the wrong predictions', 'all the correct predictions', 'all'])
-#
-# if 'same' in group_to_check:
-#     df = res_df[res_df['label'] == 1]
-# elif 'diff' in group_to_check:
-#     df = res_df[res_df['label'] == 0]
-# else:
-#     df = res_df
-#
-# if 'correct' in group_to_check:
-#     df = df[df['correct_pred'] == 1]
-# elif 'wrong' in group_to_check:
-#     df = df[df['correct_pred'] == 0]
 
-# st.write(df)
+group_to_check = st.radio('Select group:', ['same speaker', 'same speaker - wrong prediction',
+                                            'same speaker - correct prediction', 'diff speaker',
+                                            'diff speaker - wrong prediction', 'diff speaker - correct prediction',
+                                            'all the wrong predictions', 'all the correct predictions', 'all'])
+
+if 'same' in group_to_check:
+    df = res_df[res_df['label'] == 1]
+elif 'diff' in group_to_check:
+    df = res_df[res_df['label'] == 0]
+else:
+    df = res_df
+
+if 'correct' in group_to_check:
+    df = df[df['correct_pred'] == 1]
+elif 'wrong' in group_to_check:
+    df = df[df['correct_pred'] == 0]
+
+st.write(df)

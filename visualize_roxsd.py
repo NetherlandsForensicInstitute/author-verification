@@ -47,7 +47,7 @@ data_path = 'roxsd/roxsd_for_streamlit.txt'
 with open(data_path) as f:
     data = json.load(f)
 
-with open('./output/model/n_freq_words=500_pop_gauss_diff_bray_clf_logit/wordlist.json', encoding='utf-8') as json_file:
+with open('./output/model/n_freq_words=200_pop_gauss_diff_bray_clf_mlp/wordlist.json', encoding='utf-8') as json_file:
     wordlist = json.load(json_file)
 
 ids_counts = np.array(data['ids_counts'])
