@@ -18,13 +18,14 @@ import json
 import scipy.spatial
 import scipy.stats
 from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
 import sklearn.model_selection
 import sklearn.neighbors
 import sklearn.pipeline
 import sklearn.preprocessing
 import sklearn.svm
 from tqdm import tqdm
-from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_curve, roc_auc_score
 
 from authorship import data
 from authorship import vocalize_data
@@ -433,8 +434,8 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
 
     mfw_res = calculate_metrics(lrs_mfw, y_all, full_list=all_metrics)
     voc_res = calculate_metrics(lrs_voc, y_all, full_list=all_metrics)
-    lrs_multi = np.multiply(lrs_mfw, lrs_voc, full_list=all_metrics)
-    lrs_multi_res = calculate_metrics(lrs_multi, y_all, full_list=all_metrics)
+    lrs_multi = np.multiply(lrs_mfw, lrs_voc)
+    lrs_multi_res = calculate_metrics(lrs_multi, y_all)
     comb_res = calculate_metrics(lrs_comb, y_all, full_list=all_metrics)
     if combine_features_flag:
         feat_res = calculate_metrics(lrs_features, y_all, full_list=all_metrics)
@@ -453,6 +454,7 @@ def calculate_metrics(lrs, y, full_list=False):
     fpr, tpr, threshold = roc_curve(list(y), list(lrs), pos_label=1)
     fnr = 1 - tpr
     eer = fpr[np.nanargmin(np.absolute((fnr - fpr)))]
+    auc = roc_auc_score(list(y), list(lrs))
 
     if full_list:
         cllrmin = lir.metrics.cllr_min(lrs, y)
@@ -460,12 +462,12 @@ def calculate_metrics(lrs, y, full_list=False):
         tnr = np.mean(lrs[y == 0] < 1)  # true negative rate
         mean_logLR_diff = np.mean(np.log(lrs[y == 0]))
         mean_logLR_same = np.mean(np.log(lrs[y == 1]))
-        Metrics = collections.namedtuple('Metrics', ['cllr', 'cllrmin', 'cllrcal', 'accuracy', 'eer', 'recall', 'tnr',
-                                                     'precision', 'mean_logLR_diff', 'mean_logLR_same'])
-        res = Metrics(cllr, cllrmin, cllrcal, acc, eer, recall, tnr, precision, mean_logLR_diff, mean_logLR_same)
+        Metrics = collections.namedtuple('Metrics', ['cllr', 'cllrmin', 'cllrcal', 'accuracy', 'eer', 'auc', 'recall',
+                                                     'tnr', 'precision', 'mean_logLR_diff', 'mean_logLR_same'])
+        res = Metrics(cllr, cllrmin, cllrcal, acc, eer, auc, recall, tnr, precision, mean_logLR_diff, mean_logLR_same)
     else:
-        Metrics = collections.namedtuple('Metrics', ['cllr', 'accuracy', 'eer', 'recall', 'precision'])
-        res = Metrics(cllr, acc, eer, recall, precision)
+        Metrics = collections.namedtuple('Metrics', ['cllr', 'accuracy', 'eer', 'auc', 'recall', 'precision'])
+        res = Metrics(cllr, acc, eer, auc, recall, precision)
 
     return res
 
@@ -549,6 +551,11 @@ def run(dataset, voc_data, resultdir):
         ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
     ])
 
+    br_mlp = sklearn.pipeline.Pipeline([
+        ('diff:bray', BrayDistance()),
+        ('clf:mlp', MLPClassifier(solver='adam', max_iter=800, alpha=0.001, hidden_layer_sizes=(5, ), random_state=1)),
+    ])
+
     exp = experiments.Evaluation(evaluate_samesource, partial(aggregate_results, resultdir))
 
     exp.parameter('dataset', dataset)
@@ -561,7 +568,7 @@ def run(dataset, voc_data, resultdir):
     exp.parameter('n_frequent_words', 200)
     exp.addSearch('n_frequent_words', [50, 100, 200, 300], include_default=False)
 
-    exp.parameter('max_n_of_pairs_per_class', 2000)
+    exp.parameter('max_n_of_pairs_per_class', 2500)
     exp.addSearch('max_n_of_pairs_per_class', [500, 1000, 2000], include_default=False)
 
     exp.parameter('preprocessor', prep_gauss)
