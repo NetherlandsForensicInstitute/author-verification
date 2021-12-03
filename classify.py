@@ -318,7 +318,7 @@ def get_batch_simple(X, y, conv_ids, voc_conv_pairs, voc_scores, repeats, max_n_
         X_train, X_voc_train, y_train = get_pairs(X_subset_for_train, y_subset_for_train, conv_ids_subset_for_train,
                                                   voc_conv_pairs, voc_scores, max_n_of_pairs_per_class)
         X_test, X_voc_test, y_test = get_pairs(X_subset_for_test, y_subset_for_test, conv_ids_subset_for_test,
-                                               voc_conv_pairs, voc_scores, max_n_of_pairs_per_class)
+                                               voc_conv_pairs, voc_scores, 2000)
 
         yield X_train, X_voc_train, y_train, X_test, X_voc_test, y_test
 
@@ -369,7 +369,8 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
 
     lrs_mfw = []
     lrs_voc = []
-    lrs_comb = []
+    lrs_comb_a = []
+    lrs_comb_b = []
     lrs_features = []
     y_all = []
 
@@ -382,8 +383,10 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         # X_test = preprocessor.transform(X_test)
 
         # there are three ways to combine the mfw method with the voc output
-        # 1. assume that mfw and voc LR scores are independent and multiply them (m1)
-        # 2. apply logit using as input the mfc and the voc score, then calibrate the resulted score (m2)
+        # 1. assume that mfw and voc LR are independent and multiply them (m1)
+        # 2a. apply logit using as input the mfc and the voc score, then calibrate the resulted score (m2a)
+        # 2b. apply logit using as input the mfc score, the voc score, and their product, then calibrate
+        #     the resulted score (m2a)
         # 3. use the voc score as additional feature to the mfw input vector (m3)
         # NOTE: m3 can be used only if the scorer is a classification alg, otherwise m3 = m2 with scorer always a logit
 
@@ -405,12 +408,21 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         X_voc_train_norm = scaler.transform(X_voc_train.reshape(-1, 1)).T
         X_voc_test_norm = scaler.transform(X_voc_test.reshape(-1, 1)).T
 
-        X_comb_train = np.vstack((np.squeeze(mfw_scores_train), X_voc_train_norm)).T
-        mfw_voc_clf.fit(X_comb_train, y_train)
+        # X_comb_train = np.vstack((np.squeeze(mfw_scores_train), X_voc_train_norm)).T  # don't recall why squeeze
+        X_comb_train_a = np.vstack((mfw_scores_train, X_voc_train_norm)).T
+        mfw_voc_clf.fit(X_comb_train_a, y_train)
 
         mfw_scores_test = lir.apply_scorer(clf.scorer, X_test)
-        X_comb_test = np.vstack((np.squeeze(mfw_scores_test), X_voc_test_norm)).T
-        lrs_comb.append(mfw_voc_clf.predict_lr(X_comb_test))
+        # X_comb_test = np.vstack((np.squeeze(mfw_scores_test), X_voc_test_norm)).T
+        X_comb_test_a = np.vstack((mfw_scores_test, X_voc_test_norm)).T
+        lrs_comb_a.append(mfw_voc_clf.predict_lr(X_comb_test_a))
+
+        prod_train = X_comb_train_a[:, 0]*X_comb_train_a[:, 1]
+        X_comb_train_b = np.vstack((mfw_scores_train, X_voc_train_norm, prod_train)).T
+        mfw_voc_clf.fit(X_comb_train_b, y_train)
+        prod_test = X_comb_test_a[:, 0] * X_comb_test_a[:, 1]
+        X_comb_test_b = np.vstack((mfw_scores_test, X_voc_test_norm, prod_test)).T
+        lrs_comb_b.append(mfw_voc_clf.predict_lr(X_comb_test_b))
 
         # check type of scorer (for m3). In current setting, a distance scorer always has 1 step while a ML has 2
         if combine_features_flag:
@@ -424,7 +436,8 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
 
     lrs_mfw = np.concatenate(lrs_mfw)
     lrs_voc = np.concatenate(lrs_voc)
-    lrs_comb = np.concatenate(lrs_comb)
+    lrs_comb_a = np.concatenate(lrs_comb_a)
+    lrs_comb_b = np.concatenate(lrs_comb_b)
     if combine_features_flag:
         lrs_features = np.concatenate(lrs_features)
     y_all = np.concatenate(y_all)
@@ -436,12 +449,13 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     voc_res = calculate_metrics(lrs_voc, y_all, full_list=all_metrics)
     lrs_multi = np.multiply(lrs_mfw, lrs_voc)
     lrs_multi_res = calculate_metrics(lrs_multi, y_all)
-    comb_res = calculate_metrics(lrs_comb, y_all, full_list=all_metrics)
+    comb_res_a = calculate_metrics(lrs_comb_a, y_all, full_list=all_metrics)
+    comb_res_b = calculate_metrics(lrs_comb_b, y_all, full_list=all_metrics)
     if combine_features_flag:
         feat_res = calculate_metrics(lrs_features, y_all, full_list=all_metrics)
-        return mfw_res, lrs_mfw, y_all, voc_res, lrs_multi_res, comb_res, feat_res
+        return mfw_res, voc_res, lrs_multi_res, comb_res_a, comb_res_b, feat_res
     else:
-        return mfw_res, lrs_mfw, y_all, voc_res, lrs_multi_res, comb_res
+        return mfw_res, voc_res, lrs_multi_res, comb_res_a, comb_res_b
 
 
 def calculate_metrics(lrs, y, full_list=False):
@@ -476,19 +490,12 @@ def aggregate_results(out_dir, results):
     for params, result in results:
         desc = ', '.join(f'{name}={value}' for name, value in params)
         print(f'mfw only: {result[0]._fields} = {list(np.round(result[0], 3))}--{desc}')
-        print(f'voc only: {result[3]._fields} = {list(np.round(result[3], 3))}--{desc}')
-        print(f'lrs comb by multi: {result[4]._fields} = {list(np.round(result[4], 3))}--{desc}')
-        print(f'lrs comb by logit: {result[5]._fields} = {list(np.round(result[5], 3))}--{desc}')
-        if len(result) == 7:
-            print(f'lrs comb by featu: {result[6]._fields} = {list(np.round(result[6], 3))}--{desc}')
-
-        # res = {'param': desc, 'metrics': result[0], 'lrs': result[1].tolist(), 'y': result[2].tolist()}
-        #
-        # path_prefix = os.path.join(out_dir, desc.replace('*', ''))
-        # lrs_path = f'{path_prefix}.txt'
-        #
-        # with open(lrs_path, 'w', encoding='utf-8') as f:
-        #     f.write(json.dumps(res, indent=4))
+        print(f'voc only: {result[1]._fields} = {list(np.round(result[1], 3))}--{desc}')
+        print(f'lrs comb by multi: {result[2]._fields} = {list(np.round(result[2], 3))}--{desc}')
+        print(f'lrs comb by logiA: {result[3]._fields} = {list(np.round(result[3], 3))}--{desc}')
+        print(f'lrs comb by logiB: {result[4]._fields} = {list(np.round(result[4], 3))}--{desc}')
+        if len(result) == 6:
+            print(f'lrs comb by featu: {result[5]._fields} = {list(np.round(result[5], 3))}--{desc}')
 
 
 def run(dataset, voc_data, resultdir):
@@ -566,10 +573,10 @@ def run(dataset, voc_data, resultdir):
     exp.parameter('min_num_of_words', 0)
 
     exp.parameter('n_frequent_words', 200)
-    exp.addSearch('n_frequent_words', [50, 100, 200, 300], include_default=False)
+    exp.addSearch('n_frequent_words', [100, 200, 300], include_default=False)
 
     exp.parameter('max_n_of_pairs_per_class', 2500)
-    exp.addSearch('max_n_of_pairs_per_class', [500, 1000, 2000], include_default=False)
+    exp.addSearch('max_n_of_pairs_per_class', [3000, 4000], include_default=False)
 
     exp.parameter('preprocessor', prep_gauss)
 
@@ -580,8 +587,8 @@ def run(dataset, voc_data, resultdir):
     exp.parameter('repeats', 10)
 
     try:
-        exp.runDefaults()
-        # exp.runSearch('classifier')
+        # exp.runDefaults()
+        exp.runSearch('max_n_of_pairs_per_class')
         # exp.runFullGrid(['n_frequent_words', 'max_n_of_pairs_per_class'])
 
     except Exception as e:
