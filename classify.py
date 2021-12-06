@@ -575,8 +575,8 @@ def run(dataset, voc_data, resultdir):
     exp.parameter('n_frequent_words', 200)
     exp.addSearch('n_frequent_words', [100, 200, 300], include_default=False)
 
-    exp.parameter('max_n_of_pairs_per_class', 2500)
-    exp.addSearch('max_n_of_pairs_per_class', [3000, 4000], include_default=False)
+    exp.parameter('max_n_of_pairs_per_class', 4000)
+    exp.addSearch('max_n_of_pairs_per_class', [2500, 3000, 4000], include_default=False)
 
     exp.parameter('preprocessor', prep_gauss)
 
@@ -587,8 +587,8 @@ def run(dataset, voc_data, resultdir):
     exp.parameter('repeats', 10)
 
     try:
-        # exp.runDefaults()
-        exp.runSearch('max_n_of_pairs_per_class')
+        exp.runDefaults()
+        # exp.runSearch('max_n_of_pairs_per_class')
         # exp.runFullGrid(['n_frequent_words', 'max_n_of_pairs_per_class'])
 
     except Exception as e:
