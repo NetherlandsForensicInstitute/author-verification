@@ -449,6 +449,7 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     lrs_mfw = np.concatenate(lrs_mfw)
     lrs_voc = np.concatenate(lrs_voc)
     lrs_comb_a = np.concatenate(lrs_comb_a)
+    lrs_comb_b = np.concatenate(lrs_comb_b)
     if combine_features_flag:
         lrs_features = np.concatenate(lrs_features)
     y_all = np.concatenate(y_all)
@@ -598,7 +599,7 @@ def run(dataset, voc_data, resultdir):
     exp.addSearch('classifier', [('man_logit', logit), ('dist_man', dist_ma), ('bray_svm', svm_br), ('bray_logit', logit_br)], include_default=False)
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
-    exp.parameter('repeats', 10)
+    exp.parameter('repeats', 1)
 
     try:
         exp.runDefaults()
