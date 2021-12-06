@@ -11,7 +11,7 @@ import seaborn as sns
 from sklearn.metrics import roc_curve, confusion_matrix
 
 main_path = 'frida/predictions'
-runs = ['prep_gauss_2500']
+runs = ['prep_gauss_4000']
 specific_run = runs[0]
 prediction_file = 'predictions_per_repeat_' + specific_run + '.json'
 param_file = 'param_' + specific_run + '.json'
@@ -213,7 +213,8 @@ if __name__ == '__main__':
         temp_df = pd.DataFrame({'repeat': key, 'spk_A': spk_A, 'spk_B': spk_B, 'conv_A': conv_A, 'conv_B': conv_B,
                                 'y': per_repeat[key]['y'], 'lrs_mfw': per_repeat[key]['lrs_mfw'],
                                 'lrs_voc': per_repeat[key]['lrs_voc'], 'lrs_multi': lrs_multi,
-                                'lrs_comb': per_repeat[key]['lrs_comb'], 'lrs_feat': per_repeat[key]['lrs_feat']})
+                                'lrs_comb_a': per_repeat[key]['lrs_comb_a'], 'lrs_comb_b': per_repeat[key]['lrs_comb_b'],
+                                'lrs_feat': per_repeat[key]['lrs_feat']})
         temp_df['y'] = temp_df['y'].astype('Int64')
         predictions = predictions.append(temp_df, ignore_index=True)
         num_pairs = num_pairs.append(temp_num_df, ignore_index=True)
@@ -223,12 +224,12 @@ if __name__ == '__main__':
     metric_functions = {'cllr': cllr, 'acc': accuracy, 'eer': eer}
     metrics_per_repeat = pd.DataFrame()
 
-    for col in ['lrs_mfw', 'lrs_voc', 'lrs_multi', 'lrs_comb', 'lrs_feat']:
+    for col in ['lrs_mfw', 'lrs_voc', 'lrs_multi', 'lrs_comb_a', 'lrs_comb_b', 'lrs_feat']:
 
         method = col.replace('lrs_', '')
 
         # generate pav plots
-        lir.plot_pav(predictions[col], predictions['y'], savefig=f'{main_path}/pav_{col}.png')
+        # lir.plot_pav(predictions[col], predictions['y'], savefig=f'{main_path}/pav_{col}.png')  # OLD
 
         # cllr, accuracy, eer, recall and precision on a high level
         res_df_row = pd.Series([method, cllr(predictions[col], predictions['y']), accuracy(predictions[col], predictions['y']),
@@ -370,7 +371,8 @@ st.write('Percentiles per method (all runs)')
 perc_df = pd.DataFrame([percentiles_for_df('mfw', predictions.lrs_mfw),
                         percentiles_for_df('voc', predictions.lrs_voc),
                         percentiles_for_df('multi', predictions.lrs_multi),
-                        percentiles_for_df('combi', predictions.lrs_comb),
+                        percentiles_for_df('combi_a', predictions.lrs_comb_a),
+                        percentiles_for_df('combi_b', predictions.lrs_comb_b),
                         percentiles_for_df('feat', predictions.lrs_feat)],
                        columns=['method', 'min', '25th', '50th', '75th', 'max'])
 st.write(perc_df)
@@ -378,9 +380,10 @@ st.write('')
 st.write('')
 st.write('Histograms and pav plots (all runs)')
 cols = st.columns(5)
-for key, m in {0: 'lrs_mfw', 1: 'lrs_voc', 2: 'lrs_multi', 3: 'lrs_comb', 4: 'lrs_feat'}.items():
+for key, m in {0: 'lrs_mfw', 1: 'lrs_voc', 2: 'lrs_multi', 3: 'lrs_comb_a', 4: 'lrs_comb_b', 5: 'lrs_feat'}.items():
     cols[key].pyplot(lr_histogram(predictions[m], predictions['y'], title=m.replace('lrs_', '')))
-    pav_plot = plt.imread(f'{main_path}/pav_{m}.png')
+    # pav_plot = plt.imread(f'{main_path}/pav_{m}.png')
+    pav_plot = lir.pav(predictions[col], predictions['y'], show_scatter=False)
     cols[key].image(pav_plot)
 
 # ---------
@@ -388,8 +391,8 @@ st.subheader('Error analysis')
 
 cols = st.columns(5)
 option0 = cols[0].selectbox('Repeat', ('all', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'))
-option1 = cols[1].selectbox('Method A', ('mfw', 'voc', 'multi', 'comb', 'feat'))
-option2 = cols[2].selectbox('Method B', ('mfw', 'voc', 'multi', 'comb', 'feat'))
+option1 = cols[1].selectbox('Method A', ('mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat'))
+option2 = cols[2].selectbox('Method B', ('mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat'))
 option3 = cols[3].selectbox('Class (affects only the dataframe)', ('any', 'same speaker', 'different speakers'))
 option4 = cols[4].selectbox('Predictions (affects only the dataframe)', ('all', 'incorrect by A only',
                                                                          'incorrect by B only',

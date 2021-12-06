@@ -449,7 +449,6 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     lrs_mfw = np.concatenate(lrs_mfw)
     lrs_voc = np.concatenate(lrs_voc)
     lrs_comb_a = np.concatenate(lrs_comb_a)
-    lrs_comb_b = np.concatenate(lrs_comb_b)
     if combine_features_flag:
         lrs_features = np.concatenate(lrs_features)
     y_all = np.concatenate(y_all)
