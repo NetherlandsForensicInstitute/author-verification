@@ -213,12 +213,3 @@ def to_vector_size(speakers):
         features.append(texts)
 
     return np.concatenate(features), np.array(labels)
-
-
-# import confidence
-#
-# if __name__ == '__main__':
-#     cfg = confidence.load_name('..\\authorship', 'local')
-#     prova = FisherDataSource(cfg.fisher_data, cfg.fisher_data_info, n_frequent_words=5)
-#     X, y = prova.get()
-#     print(type('3'))

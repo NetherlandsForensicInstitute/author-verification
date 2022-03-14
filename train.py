@@ -147,7 +147,7 @@ def run(dataset, resultdir, extra_data_file=None):
     exp.parameter('resultdir', resultdir)
 
     exp.parameter('min_words_in_conv', 50)
-    exp.parameter('n_frequent_words', 500)
+    exp.parameter('n_frequent_words', 100)
     exp.parameter('max_n_of_pairs_per_class', 15000)
 
     exp.parameter('preprocessor', prep_gauss)
