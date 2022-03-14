@@ -144,7 +144,6 @@ def get_frequent_words(speakers, n):
         for word in sp:
             if '*' in word:
                 print(word)
-                # continue
             else:
                 freq[word] += 1
     freq = sorted(freq.items(), key=lambda x: x[1], reverse=True)

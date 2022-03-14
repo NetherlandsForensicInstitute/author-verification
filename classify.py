@@ -402,7 +402,7 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         # take scores from mfw scorer and combine with voc output using logit then calibrate (for m2)
         mfw_scores_train = lir.apply_scorer(clf.scorer, X_train)
 
-        # scale voc_score to match the value range of the mfw clasifier (0-1)
+        # scale voc_score to match the value range of the mfw classifier (0-1)
         scaler = sklearn.preprocessing.MinMaxScaler()
         scaler.fit(X_voc_train.reshape(-1, 1))
         X_voc_train_norm = scaler.transform(X_voc_train.reshape(-1, 1)).T

@@ -7,10 +7,7 @@ __pycache__
 /output
 /run.log
 /venv
-/frida/vocalize_results/
 
 *vcs.xml
 
 .idea
-
-
