@@ -1,7 +1,3 @@
 data: fisher/fisher_trans.sha256  # frida/frida.sha256
 data_info: fisher/info.txt
 resultdir: output
-
-# temp
-# fisher_data: ../fisher/fisher_trans.sha256
-# fisher_data_info: ../fisher/info.txt
