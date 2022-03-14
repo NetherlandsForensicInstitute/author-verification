@@ -13,7 +13,8 @@ from sklearn.metrics import roc_curve, confusion_matrix
 main_path = 'frida/predictions'
 runs = ['prep_gauss_4000']
 specific_run = runs[0]
-prediction_file = 'predictions_per_repeat_' + specific_run + '.json'
+prediction_file = 'predictions_per_repeat.json'  # 20211228 the file is a dummy
+# prediction_file = 'predictions_per_repeat_' + specific_run + '.json'
 param_file = 'param_' + specific_run + '.json'
 
 
