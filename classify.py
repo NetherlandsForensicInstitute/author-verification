@@ -14,7 +14,6 @@ import lir
 from lir import transformers
 from matplotlib import pyplot as plt
 import numpy as np
-import json
 import scipy.spatial
 import scipy.stats
 from sklearn.linear_model import LogisticRegression
@@ -287,6 +286,8 @@ def get_batch_simple(X, y, conv_ids, voc_conv_pairs, voc_scores, repeats, max_n_
         y_subset_for_test = y[np.isin(y, authors_test)]
         conv_ids_subset_for_test = conv_ids[np.isin(y, authors_test)]
 
+        # max_n_of_pairs_per_class affects only the train set, the size of the test set is fixed (for fair comparisons
+        # of runs with different max_n_of_pairs_per_class).
         X_train, X_voc_train, y_train = get_pairs(X_subset_for_train, y_subset_for_train, conv_ids_subset_for_train,
                                                   voc_conv_pairs, voc_scores, max_n_of_pairs_per_class)
         X_test, X_voc_test, y_test = get_pairs(X_subset_for_test, y_subset_for_test, conv_ids_subset_for_test,
@@ -308,7 +309,6 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     :param preprocessor: Pipeline: an sklearn pipeline
     :param classifier: Pipeline: an sklearn pipeline with a classifier as last element
     :param calibrator: a LIR calibrator
-    :param plot: a plotting function
     :param repeats: int: the number of times the experiment is run
 
     :return: cllr, accuracy, eer, recall, precision (if all_metrics=True then cllr, cllr_min, cllr_cal, accuracy, eer,
@@ -337,8 +337,6 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     LOG.info(f'{desc}: number of speakers: {np.unique(y).size}')
     LOG.info(f'{desc}: number of instances: {y.size}')
 
-    # X = preprocessor.fit_transform(X)  # shouldn't this take place on the x_train and then on x_test?
-
     lrs_mfw = []
     lrs_voc = []
     lrs_comb_a = []
@@ -350,45 +348,41 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
             get_batch_simple(X, y, conv_ids, voc_conv_pairs, voc_scores, repeats,
                              max_n_of_pairs_per_class, preprocessor)):
 
-        # preprocessing the data - NOT WORKING - not the place to be, at t
-        # X_train = preprocessor.fit_transform(X_train)
-        # X_test = preprocessor.transform(X_test)
-
-        # there are three ways to combine the mfw method with the voc output
+        # we consider four ways to combine the mfw method with the voc output
         # 1. assume that mfw and voc LR are independent and multiply them (m1)
         # 2a. apply logit using as input the mfc and the voc score, then calibrate the resulted score (m2a)
         # 2b. apply logit using as input the mfc score, the voc score, and their product, then calibrate
         #     the resulted score (m2a)
         # 3. use the voc score as additional feature to the mfw input vector (m3)
-        # NOTE: m3 can be used only if the scorer is a classification alg, otherwise m3 = m2 with scorer always a logit
+        # NOTE: m3 can be used only if the scorer is a classification alg, otherwise m3 = m2a with scorer = logit
 
         # calculate LRs for vocalize output (for m1)
         voc_cal.fit(X=X_voc_train, y=y_train)
         lrs_voc.append(voc_cal.transform(X_voc_test))
 
-        # mfw - fit a classifier and calculate LRs (for m1, the resulted scorer can also be used for m2)
+        # mfw - fit classifier and calculate LRs (for m1, the resulted scorer can also be used for both variants of m2)
         clf.fit(X_train, y_train)
         lrs_mfw.append(clf.predict_lr(X_test))
         y_all.append(y_test)
 
-        # take scores from mfw scorer and combine with voc output using logit then calibrate (for m2)
-        mfw_scores_train = lir.apply_scorer(clf.scorer, X_train)
-
-        # scale voc_score to match the value range of the mfw classifier (0-1)
+        # scale voc_score to match the value range of the mfw classifier/data prep for mfw (0-1) (for m2 and m3)
         scaler = sklearn.preprocessing.MinMaxScaler()
         scaler.fit(X_voc_train.reshape(-1, 1))
         X_voc_train_norm = scaler.transform(X_voc_train.reshape(-1, 1)).T
         X_voc_test_norm = scaler.transform(X_voc_test.reshape(-1, 1)).T
 
-        # X_comb_train = np.vstack((np.squeeze(mfw_scores_train), X_voc_train_norm)).T  # don't recall why squeeze
+        # take scores from mfw scorer (for m2)
+        mfw_scores_train = lir.apply_scorer(clf.scorer, X_train)
+
+        # ... and combine with voc output using logit then calibrate (for m2a)
         X_comb_train_a = np.vstack((mfw_scores_train, X_voc_train_norm)).T
         mfw_voc_clf.fit(X_comb_train_a, y_train)
 
         mfw_scores_test = lir.apply_scorer(clf.scorer, X_test)
-        # X_comb_test = np.vstack((np.squeeze(mfw_scores_test), X_voc_test_norm)).T
         X_comb_test_a = np.vstack((mfw_scores_test, X_voc_test_norm)).T
         lrs_comb_a.append(mfw_voc_clf.predict_lr(X_comb_test_a))
 
+        # ... and append voc output to mfw features then fit scorer and calibrate (for m2b)
         prod_train = X_comb_train_a[:, 0]*X_comb_train_a[:, 1]
         X_comb_train_b = np.vstack((mfw_scores_train, X_voc_train_norm, prod_train)).T
         mfw_voc_clf.fit(X_comb_train_b, y_train)
@@ -414,11 +408,7 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         lrs_features = np.concatenate(lrs_features)
     y_all = np.concatenate(y_all)
 
-    n_same = int(np.sum(y_all))
-    n_diff = int(y.size - np.sum(y_all))
-
-    LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
-
+    # calculate metrics for each method and log them
     mfw_res = calculate_metrics(lrs_mfw, y_all, full_list=all_metrics)
     voc_res = calculate_metrics(lrs_voc, y_all, full_list=all_metrics)
     lrs_multi = np.multiply(lrs_mfw, lrs_voc)
@@ -426,11 +416,16 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     comb_res_a = calculate_metrics(lrs_comb_a, y_all, full_list=all_metrics)
     comb_res_b = calculate_metrics(lrs_comb_b, y_all, full_list=all_metrics)
 
+    n_same = int(np.sum(y_all))
+    n_diff = int(y.size - np.sum(y_all))
+
+    LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
     LOG.info(f'  mfw only: {mfw_res._fields} = {list(np.round(mfw_res, 3))}')
     LOG.info(f'  voc only: {voc_res._fields} = {list(np.round(voc_res, 3))}')
     LOG.info(f'  lrs comb by multi: {lrs_multi_res._fields} = {list(np.round(lrs_multi_res, 3))}')
     LOG.info(f'  lrs comb by logiA: {comb_res_a._fields} = {list(np.round(comb_res_a, 3))}')
     LOG.info(f'  lrs comb by logiB: {comb_res_b._fields} = {list(np.round(comb_res_b, 3))}')
+
     if combine_features_flag:
         feat_res = calculate_metrics(lrs_features, y_all, full_list=all_metrics)
         LOG.info(f'  lrs comb by featu: {feat_res._fields} = {list(np.round(feat_res, 3))}')
@@ -440,6 +435,16 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
 
 
 def calculate_metrics(lrs, y, full_list=False):
+    """
+    calculate several metrics
+
+    :param lrs: lrs as derived by the evaluate_samesource
+    :param y: true labels
+    :param full_list: if True more metrics are calculated
+
+    :return: [namedtuple] cllr, accuracy, eer, recall, precision (if full_list=True then cllr, cllr_min, cllr_cal,
+                          accuracy, eer, recall, true negative rate, precision, mean_logLR_diff, mean_logLR_same)
+    """
 
     cllr = lir.metrics.cllr(lrs, y)
     acc = np.mean((lrs > 1) == y)
@@ -468,6 +473,13 @@ def calculate_metrics(lrs, y, full_list=False):
 
 
 def aggregate_results(out_dir, results):
+    '''
+    prints resutls
+
+    :param out_dir: [outdated at the moment]
+    :param results: namedtuple (as return by the evaluate_samesource)
+
+    '''
     for params, result in results:
         desc = ', '.join(f'{name}={value}' for name, value in params)
         print(f'mfw only: {result[0]._fields} = {list(np.round(result[0], 3))}--{desc}')
