@@ -236,34 +236,6 @@ class VectorDistance(sklearn.base.TransformerMixin):
         return np.stack([p0, 1 / p0], axis=1)
 
 
-class makeplots:
-    def __init__(self, path_prefix=None):
-        self.path_prefix = path_prefix
-
-    def __call__(self, lrs, y, title='', shortname=''):
-        n_same = int(np.sum(y))
-        n_diff = int(y.size - np.sum(y))
-        cllr = lir.metrics.cllr(lrs, y)
-        acc = np.mean((lrs > 1) == y)
-
-        LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
-        LOG.info(
-            f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y == 0])))}; {np.exp(np.mean(np.log(lrs[y == 1])))}')
-        LOG.info(
-            f'  cllr, acc: {cllr, acc}')
-
-        path_prefix = os.path.join(self.path_prefix, shortname.replace('*', ''))
-        tippet_path = f'{path_prefix}_tippet.png' if self.path_prefix is not None else None
-        pav_path = f'{path_prefix}_pav.png' if self.path_prefix is not None else None
-        ece_path = f'{path_prefix}_ece.png' if self.path_prefix is not None else None
-
-        kw_figure = {}
-
-        lir.plotting.plot_tippett(lrs, y, savefig=tippet_path, kw_figure=kw_figure)
-        lir.plotting.plot_pav(lrs, y, savefig=pav_path, kw_figure=kw_figure)
-        lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
-
-
 def get_pairs(X, y, conv_ids, voc_conv_pairs, voc_scores, sample_size):
     """
     X = conversations - from the transcriptions
@@ -324,7 +296,7 @@ def get_batch_simple(X, y, conv_ids, voc_conv_pairs, voc_scores, repeats, max_n_
 
 
 def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n_of_pairs_per_class, preprocessor, classifier,
-                        calibrator, plot=None, repeats=1, min_num_of_words=0, all_metrics=False):
+                        calibrator, repeats=1, min_num_of_words=0, all_metrics=False):
     """
     Run an experiment with the parameters provided.
 
@@ -344,7 +316,7 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     """
 
     clf = lir.CalibratedScorer(classifier, calibrator)  # set up classifier and calibrator for authorship technique
-    voc_cal = lir.ScalingCalibrator(lir.LogitCalibrator())  # set up calibrator for vocalise output
+    voc_cal = lir.ScalingCalibrator(lir.LogitCalibratorInProbabilityDomain())  # set up calibrator for vocalise output
     mfw_voc_clf = lir.CalibratedScorer(LogisticRegression(class_weight='balanced'), calibrator)  # set up logit as classifier and calibrator for a type of fusion
     combine_features_flag = False  # In current setting, a distance scorer always has 1 step while a ML has 2
     if len(clf.scorer.named_steps) > 1:
@@ -442,8 +414,10 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         lrs_features = np.concatenate(lrs_features)
     y_all = np.concatenate(y_all)
 
-    if plot is not None:
-        plot(lrs_mfw, y_all, title=title, shortname=desc)
+    n_same = int(np.sum(y_all))
+    n_diff = int(y.size - np.sum(y_all))
+
+    LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
 
     mfw_res = calculate_metrics(lrs_mfw, y_all, full_list=all_metrics)
     voc_res = calculate_metrics(lrs_voc, y_all, full_list=all_metrics)
@@ -451,8 +425,15 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     lrs_multi_res = calculate_metrics(lrs_multi, y_all)
     comb_res_a = calculate_metrics(lrs_comb_a, y_all, full_list=all_metrics)
     comb_res_b = calculate_metrics(lrs_comb_b, y_all, full_list=all_metrics)
+
+    LOG.info(f'  mfw only: {mfw_res._fields} = {list(np.round(mfw_res, 3))}')
+    LOG.info(f'  voc only: {voc_res._fields} = {list(np.round(voc_res, 3))}')
+    LOG.info(f'  lrs comb by multi: {lrs_multi_res._fields} = {list(np.round(lrs_multi_res, 3))}')
+    LOG.info(f'  lrs comb by logiA: {comb_res_a._fields} = {list(np.round(comb_res_a, 3))}')
+    LOG.info(f'  lrs comb by logiB: {comb_res_b._fields} = {list(np.round(comb_res_b, 3))}')
     if combine_features_flag:
         feat_res = calculate_metrics(lrs_features, y_all, full_list=all_metrics)
+        LOG.info(f'  lrs comb by featu: {feat_res._fields} = {list(np.round(feat_res, 3))}')
         return mfw_res, voc_res, lrs_multi_res, comb_res_a, comb_res_b, feat_res
     else:
         return mfw_res, voc_res, lrs_multi_res, comb_res_a, comb_res_b
@@ -568,14 +549,13 @@ def run(dataset, voc_data, resultdir):
     exp.parameter('dataset', dataset)
     exp.parameter('voc_data', voc_data)
     exp.parameter('device', 'telephone')  # options: telephone, headset, SM58close, AKGC400BL, SM58far
-    # exp.parameter('plot', makeplots(resultdir))
 
-    exp.parameter('min_num_of_words', 0)
+    exp.parameter('min_num_of_words', 50)
 
     exp.parameter('n_frequent_words', 200)
     exp.addSearch('n_frequent_words', [100, 200, 300], include_default=False)
 
-    exp.parameter('max_n_of_pairs_per_class', 4000)
+    exp.parameter('max_n_of_pairs_per_class', 1000)
     exp.addSearch('max_n_of_pairs_per_class', [2500, 3000, 4000], include_default=False)
 
     exp.parameter('preprocessor', prep_gauss)
@@ -584,7 +564,7 @@ def run(dataset, voc_data, resultdir):
     exp.addSearch('classifier', [('man_logit', logit), ('dist_man', dist_ma), ('bray_svm', svm_br), ('bray_logit', logit_br)], include_default=False)
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
-    exp.parameter('repeats', 10)
+    exp.parameter('repeats', 1)
 
     try:
         exp.runDefaults()
