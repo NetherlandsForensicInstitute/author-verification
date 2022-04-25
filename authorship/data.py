@@ -60,15 +60,16 @@ class CreateFeatureVector:
         """
         it takes a list of words used in a conversation by one speaker and returns the counts of the words in the
         wordlist based on this conversation
-        """
-        sample = [[word for word in texts if word in self.wordlist]]
 
-        if len(sample) == 0:
+        :param texts: a list of words
+        """
+
+        if len(texts) == 0:
             return []
         else:
             vectorizer = TfidfVectorizer(analyzer='word', use_idf=False, norm=None, vocabulary=self.wordlist,
                                          tokenizer=lambda x: x, preprocessor=lambda x: x, token_pattern=None)
-            return vectorizer.fit_transform(sample).toarray()
+            return vectorizer.fit_transform([texts]).toarray()
 
 
 def load_data(path):
