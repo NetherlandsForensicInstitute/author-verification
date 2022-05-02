@@ -366,13 +366,18 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         lrs_mfw.append(clf.predict_lr(X_test))
         y_all.append(y_test)
 
+        n_same = int(np.sum(np.concatenate(y_all)))
+        n_diff = int(y.size - np.sum(np.concatenate(y_all)))
+
+        LOG.info(f'  counts by class: diff={n_diff}; same={n_same}')
+
         # scale voc_score to match the value range of the mfw classifier/data prep for mfw (0-1) (for m2 and m3)
         scaler = sklearn.preprocessing.MinMaxScaler()
         scaler.fit(X_voc_train.reshape(-1, 1))
         X_voc_train_norm = scaler.transform(X_voc_train.reshape(-1, 1)).T
         X_voc_test_norm = scaler.transform(X_voc_test.reshape(-1, 1)).T
 
-        # take scores from mfw scorer (for m2)
+        # take scores from mfw scorer
         mfw_scores_train = lir.apply_scorer(clf.scorer, X_train)
 
         # ... and combine with voc output using logit then calibrate (for m2a)
@@ -391,7 +396,7 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         X_comb_test_b = np.vstack((mfw_scores_test, X_voc_test_norm, prod_test)).T
         lrs_comb_b.append(mfw_voc_clf.predict_lr(X_comb_test_b))
 
-        # ... and append voc output to mfw features then fit scorer and calibrate (for m3)
+        # append voc output to mfw features then fit scorer and calibrate (for m3)
         X_train_onevector = clf.scorer.steps[0][1].transform(X_train)
         X_train_onevector = np.column_stack((X_train_onevector, X_voc_train_norm.T))
         features_clf.fit(X_train_onevector, y_train)
@@ -417,7 +422,7 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     feat_res = calculate_metrics(lrs_features, y_all, full_list=all_metrics)
 
     n_same = int(np.sum(y_all))
-    n_diff = int(y.size - np.sum(y_all))
+    n_diff = int(y_all.size - np.sum(y_all))
 
     LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
     LOG.info(f'  mfw only: {mfw_res._fields} = {list(np.round(mfw_res, 3))}')
