@@ -26,7 +26,7 @@ import sklearn.svm
 from tqdm import tqdm
 from sklearn.metrics import roc_curve, roc_auc_score
 
-from authorship import data
+from authorship import frida_data
 from authorship import vocalize_data
 from authorship import experiments
 
@@ -253,7 +253,8 @@ def get_pairs(X, y, conv_ids, voc_conv_pairs, voc_scores, sample_size):
                                                         different_source_limit=int(sample_size))
     X_pairs, y_pairs = pairs_transformation.transform(X, y)
     pairing = pairs_transformation.pairing  # indices of pairs based on the transcriptions
-    conv_pairs = np.apply_along_axis(lambda a: np.array([conv_ids[a[0]], conv_ids[a[1]]]), 1, pairing)  # from indices to the actual pairs
+    conv_pairs = np.apply_along_axis(lambda a: np.array([conv_ids[a[0]], conv_ids[a[1]]]), 1,
+                                     pairing)  # from indices to the actual pairs
 
     # search the pair based on transcription within the conv_ids (order of the speaker ids is not crucial)
     # and return the vocalise score if no score exists set value to NaN
@@ -296,8 +297,8 @@ def get_batch_simple(X, y, conv_ids, voc_conv_pairs, voc_scores, repeats, max_n_
         yield X_train, X_voc_train, y_train, X_test, X_voc_test, y_test
 
 
-def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n_of_pairs_per_class, preprocessor, classifier,
-                        calibrator, repeats=1, min_num_of_words=0, all_metrics=False):
+def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n_of_pairs_per_class, preprocessor,
+                        classifier, calibrator, repeats=1, min_num_of_words=0, all_metrics=False):
     """
     Run an experiment with the parameters provided.
 
@@ -316,14 +317,13 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     """
 
     clf = lir.CalibratedScorer(classifier, calibrator)  # set up classifier and calibrator for authorship technique
-    voc_cal = lir.ScalingCalibrator(lir.LogitCalibratorInProbabilityDomain())  # set up calibrator for vocalise output
-    mfw_voc_clf = lir.CalibratedScorer(LogisticRegression(class_weight='balanced'), calibrator)  # set up logit as classifier and calibrator for a type of fusion
-    combine_features_flag = False  # In current setting, a distance scorer always has 1 step while a ML has 2
-    if len(clf.scorer.named_steps) > 1:
-        combine_features_flag = True
-        features_clf = lir.CalibratedScorer(clf.scorer.steps[1][1], calibrator)  # set up classifier and calibrator for a type of fusion
+    voc_cal = lir.ScalingCalibrator(lir.KDECalibratorInProbabilityDomain())  # set up calibrator for vocalise output
+    mfw_voc_clf = lir.CalibratedScorer(LogisticRegression(class_weight='balanced'),
+                                       calibrator)  # set up logit as classifier and calibrator for a type of fusion
+    features_clf = lir.CalibratedScorer(clf.scorer.steps[1][1],
+                                        calibrator)  # set up classifier and calibrator for a type of fusion
 
-    ds = data.DataSource(dataset, n_frequent_words=n_frequent_words, min_num_of_words=min_num_of_words)
+    ds = frida_data.FridaDataSource(dataset, n_frequent_words=n_frequent_words, min_num_of_words=min_num_of_words)
     X, y, conv_ids = ds.get()
     voc_ds = vocalize_data.VocalizeDataSource(voc_data, device=device)
     voc_conv_pairs, voc_scores = voc_ds.get()
@@ -357,6 +357,7 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         # NOTE: m3 can be used only if the scorer is a classification alg, otherwise m3 = m2a with scorer = logit
 
         # calculate LRs for vocalize output (for m1)
+        # remember: vocalize outputs uncalibrated LRs
         voc_cal.fit(X=X_voc_train, y=y_train)
         lrs_voc.append(voc_cal.transform(X_voc_test))
 
@@ -382,30 +383,28 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         X_comb_test_a = np.vstack((mfw_scores_test, X_voc_test_norm)).T
         lrs_comb_a.append(mfw_voc_clf.predict_lr(X_comb_test_a))
 
-        # ... and append voc output to mfw features then fit scorer and calibrate (for m2b)
-        prod_train = X_comb_train_a[:, 0]*X_comb_train_a[:, 1]
+        # ... and combine with voc output and their product using logit then calibrate (for m2b)
+        prod_train = X_comb_train_a[:, 0] * X_comb_train_a[:, 1]
         X_comb_train_b = np.vstack((mfw_scores_train, X_voc_train_norm, prod_train)).T
         mfw_voc_clf.fit(X_comb_train_b, y_train)
         prod_test = X_comb_test_a[:, 0] * X_comb_test_a[:, 1]
         X_comb_test_b = np.vstack((mfw_scores_test, X_voc_test_norm, prod_test)).T
         lrs_comb_b.append(mfw_voc_clf.predict_lr(X_comb_test_b))
 
-        # check type of scorer (for m3). In current setting, a distance scorer always has 1 step while a ML has 2
-        if combine_features_flag:
-            X_train_onevector = clf.scorer.steps[0][1].transform(X_train)
-            X_train_onevector = np.column_stack((X_train_onevector, X_voc_train_norm.T))
-            features_clf.fit(X_train_onevector, y_train)
+        # ... and append voc output to mfw features then fit scorer and calibrate (for m3)
+        X_train_onevector = clf.scorer.steps[0][1].transform(X_train)
+        X_train_onevector = np.column_stack((X_train_onevector, X_voc_train_norm.T))
+        features_clf.fit(X_train_onevector, y_train)
 
-            X_test_onevector = clf.scorer.steps[0][1].transform(X_test)
-            X_test_onevector = np.column_stack((X_test_onevector, X_voc_test_norm.T))
-            lrs_features.append(features_clf.predict_lr(X_test_onevector))
+        X_test_onevector = clf.scorer.steps[0][1].transform(X_test)
+        X_test_onevector = np.column_stack((X_test_onevector, X_voc_test_norm.T))
+        lrs_features.append(features_clf.predict_lr(X_test_onevector))
 
     lrs_mfw = np.concatenate(lrs_mfw)
     lrs_voc = np.concatenate(lrs_voc)
     lrs_comb_a = np.concatenate(lrs_comb_a)
     lrs_comb_b = np.concatenate(lrs_comb_b)
-    if combine_features_flag:
-        lrs_features = np.concatenate(lrs_features)
+    lrs_features = np.concatenate(lrs_features)
     y_all = np.concatenate(y_all)
 
     # calculate metrics for each method and log them
@@ -415,6 +414,7 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     lrs_multi_res = calculate_metrics(lrs_multi, y_all)
     comb_res_a = calculate_metrics(lrs_comb_a, y_all, full_list=all_metrics)
     comb_res_b = calculate_metrics(lrs_comb_b, y_all, full_list=all_metrics)
+    feat_res = calculate_metrics(lrs_features, y_all, full_list=all_metrics)
 
     n_same = int(np.sum(y_all))
     n_diff = int(y.size - np.sum(y_all))
@@ -425,13 +425,9 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     LOG.info(f'  lrs comb by multi: {lrs_multi_res._fields} = {list(np.round(lrs_multi_res, 3))}')
     LOG.info(f'  lrs comb by logiA: {comb_res_a._fields} = {list(np.round(comb_res_a, 3))}')
     LOG.info(f'  lrs comb by logiB: {comb_res_b._fields} = {list(np.round(comb_res_b, 3))}')
+    LOG.info(f'  lrs comb by featu: {feat_res._fields} = {list(np.round(feat_res, 3))}')
 
-    if combine_features_flag:
-        feat_res = calculate_metrics(lrs_features, y_all, full_list=all_metrics)
-        LOG.info(f'  lrs comb by featu: {feat_res._fields} = {list(np.round(feat_res, 3))}')
-        return mfw_res, voc_res, lrs_multi_res, comb_res_a, comb_res_b, feat_res
-    else:
-        return mfw_res, voc_res, lrs_multi_res, comb_res_a, comb_res_b
+    return mfw_res, voc_res, lrs_multi_res, comb_res_a, comb_res_b, feat_res
 
 
 def calculate_metrics(lrs, y, full_list=False):
@@ -519,15 +515,7 @@ def run(dataset, voc_data, resultdir):
         ('pop:kde', KdeCdfTransformer()),  # cumulative density function for each feature
     ])
 
-    ### CLASSIFIERS for authorship verification
-
-    dist_br = sklearn.pipeline.Pipeline([
-        ('dist:bray', VectorDistance(scipy.spatial.distance.braycurtis)),
-    ])
-
-    dist_ma = sklearn.pipeline.Pipeline([
-        ('dist:man', VectorDistance(scipy.spatial.distance.cityblock)),
-    ])
+    ### CLASSIFIERS for authorship verification (a element-wise distance and a binaly ML alg is expected)
 
     logit = sklearn.pipeline.Pipeline([
         ('diff:abs', transformers.AbsDiffTransformer()),
@@ -553,7 +541,7 @@ def run(dataset, voc_data, resultdir):
 
     br_mlp = sklearn.pipeline.Pipeline([
         ('diff:bray', BrayDistance()),
-        ('clf:mlp', MLPClassifier(solver='adam', max_iter=800, alpha=0.001, hidden_layer_sizes=(5, ), random_state=1)),
+        ('clf:mlp', MLPClassifier(solver='adam', max_iter=800, alpha=0.001, hidden_layer_sizes=(5,), random_state=1)),
     ])
 
     exp = experiments.Evaluation(evaluate_samesource, partial(aggregate_results, resultdir))
@@ -567,16 +555,18 @@ def run(dataset, voc_data, resultdir):
     exp.parameter('n_frequent_words', 200)
     exp.addSearch('n_frequent_words', [100, 200, 300], include_default=False)
 
-    exp.parameter('max_n_of_pairs_per_class', 1000)
+    exp.parameter('max_n_of_pairs_per_class', 4000)
     exp.addSearch('max_n_of_pairs_per_class', [2500, 3000, 4000], include_default=False)
 
     exp.parameter('preprocessor', prep_gauss)
 
     exp.parameter('classifier', ('bray_logit', logit_br))
-    exp.addSearch('classifier', [('man_logit', logit), ('dist_man', dist_ma), ('bray_svm', svm_br), ('bray_logit', logit_br)], include_default=False)
+    exp.addSearch('classifier',
+                  [('man_logit', logit), ('bray_svm', svm_br), ('bray_logit', logit_br)],
+                  include_default=False)
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
-    exp.parameter('repeats', 1)
+    exp.parameter('repeats', 10)
 
     try:
         exp.runDefaults()
