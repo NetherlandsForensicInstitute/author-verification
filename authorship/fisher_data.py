@@ -4,7 +4,8 @@ import logging
 import os
 import re
 import numpy as np
-import pandas as pd
+import jiwer
+import itertools
 
 from nltk.tokenize import WhitespaceTokenizer
 from tqdm import tqdm
@@ -20,7 +21,7 @@ class FisherDataSource:
         self._n_freqwords = n_frequent_words  # number of frequent words
         self._data = data  # data location
         self._info = info  # file that connect a side of a conversation to a specific speaker
-        self._min_words_in_conv = min_words_in_conv  # min number of words, a conversation should include
+        self._min_words_in_conv = min_words_in_conv  # min number of words, a file should include
         self._wordlist = []
 
     def _get_cache_path(self):
@@ -38,12 +39,7 @@ class FisherDataSource:
             store_data(speakers_path, speakers_wordlist)
 
         # extract a list of frequent words
-        # self._wordlist = [word for word, freq in get_frequent_words(speakers_wordlist, self._n_freqwords)]
-        words = pd.read_csv('.\\output\\model\\fisher_vs_roxsd_600.csv')
-        # & (words['weighted_mean_diff'] < 0.8)
-        words = words[(words['roxsd_valid']) & (words['filler_word'] == 0) &
-                      (words['order'] <= self._n_freqwords)]
-        self._wordlist = words['word'].tolist()
+        self._wordlist = [word for word, freq in get_frequent_words(speakers_wordlist, self._n_freqwords)]
 
         # build a dictionary of feature vectors
         speakers_conv = filter_speakers_text(speakers_wordlist, self._wordlist, self._min_words_in_conv)
@@ -65,16 +61,19 @@ class CreateFeatureVector:
     def __init__(self, wordlist):
         self.wordlist = wordlist
 
-    def __call__(self, texts):
+    def __call__(self, text):
+        """
+        it takes a list of words used in a conversation by one speaker and returns the counts of the words in the
+        wordlist based on this conversation
+            :param text: a list of words
+        """
 
-        samples = [[word for word in texts if word in self.wordlist]]
-
-        if len(samples) == 0:
+        if len(text) == 0:
             return []
         else:
             vectorizer = TfidfVectorizer(analyzer='word', use_idf=False, norm=None, vocabulary=self.wordlist,
                                          tokenizer=lambda x: x, preprocessor=lambda x: x, token_pattern=None)
-            return vectorizer.fit_transform(samples).toarray()
+            return vectorizer.fit_transform([text]).toarray()
 
 
 def load_data(path):
@@ -94,17 +93,24 @@ def read_session(lines):
     """
     lines_to_words = lines.read()
     lines_to_words = re.sub('[0-9]*\.[0-9]*\ [0-9]*\.[0-9]*\ [AB]:', '', lines_to_words)
-    lines_to_words = re.sub('\(\(\s+\)\)', '', lines_to_words)  # -> <UNK>
-    lines_to_words = re.sub('\(\([a-zUNK0-9\[\]\s\'\-_.,<>]*\)\)', '', lines_to_words)  # -> <GUESS>
+    lines_to_words = jiwer.ToLowerCase()(lines_to_words)
+    lines_to_words = jiwer.ExpandCommonEnglishContractions()(lines_to_words)
+    # lines_to_words = re.sub('\(\(\s+\)\)', '', lines_to_words)  # -> <UNK>
+    # lines_to_words = re.sub('\(\([a-zUNK0-9\[\]\s\'\-_.,<>]*\)\)', '', lines_to_words)  # -> <GUESS>
     lines_to_words = re.sub('\[\[[a-z]*\]\]', '', lines_to_words)  # -> <SKIP>
     lines_to_words = re.sub('\[[a-z]*\]', '', lines_to_words)  # -> <SOUND>
+    lines_to_words = re.sub('\(\(', '', lines_to_words)  # remove (( and )) but keep text inside
+    lines_to_words = re.sub('\)\)', '', lines_to_words)
     lines_to_words = lines_to_words.replace('\n', ' ')
+    lines_to_words = lines_to_words.replace('~', '')
+    lines_to_words = lines_to_words.replace('*', '')
 
     tk = WhitespaceTokenizer()
     words = tk.tokenize(lines_to_words)
 
     words = [re.sub(r'^\'', '', i) for i in words]  # remove ' from the beginning of a word
     words = [re.sub(r'\'$', '', i) for i in words]  # remove ' from the end of a word
+    words = [j for i in words if (re.search(r'-$', i) is None) & (i != 'uh-huh') for j in re.split('-', i)]  # remove - for splitting words
 
     return words
 
@@ -186,9 +192,6 @@ def filter_speakers_text(speakerdict, wordlist, min_words_in_conv):
     filtered = {}
     for label, texts in speakerdict.items():
         LOG.debug('filter in subset {}'.format(label))
-        # words_to_exclude = ['yeah', 'um', 'uh', 'okay', 'oh', 'ah', 'mhm', 'uh-huh', 'er', 'em', 'huh', 'mm', 'yep',
-        #                     'hm', 'yea', 'ya', 'eh']
-        # texts = [word for word in texts if word not in words_to_exclude]
 
         n_words = len(texts)
         if label.split('_')[0] not in spk_with_occurrences or n_words < min_words_in_conv:
@@ -213,7 +216,6 @@ def to_vector_size(speakers):
         features.append(texts)
 
     return np.concatenate(features), np.array(labels)
-
 
 # import confidence
 #

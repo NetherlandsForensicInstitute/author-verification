@@ -280,11 +280,7 @@ def get_batch_simple(X, y, repeats, max_n_of_pairs_per_class):
 
         sample_size = 2 * max_n_of_pairs_per_class
         X_train, y_train = get_pairs(X, y, authors_train, sample_size)
-        print('train same: ', int(np.sum(y_train)))
-        print('train diff: ', int(y_train.size - np.sum(y_train)))
         X_test, y_test = get_pairs(X, y, authors_test, 4000)
-        print('test same: ', int(np.sum(y_test)))
-        print('test diff: ', int(y_test.size - np.sum(y_test)))
 
         yield X_train, y_train, X_test, y_test
 
@@ -443,7 +439,7 @@ def run(dataset, resultdir, extra_data_file=None):
     exp.addSearch('classifier', [('bray_logit', br_logit), ('man_logit', man_logit)], include_default=False)
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
-    exp.parameter('repeats', 50)
+    exp.parameter('repeats', 10)
 
     try:
         exp.runDefaults()
