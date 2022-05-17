@@ -29,6 +29,7 @@ from sklearn.metrics import roc_curve
 
 from authorship import data
 from authorship import fisher_data
+from authorship import asr_fisher_data
 from authorship import experiments
 
 DEFAULT_LOGLEVEL = logging.WARNING
@@ -302,13 +303,16 @@ def evaluate_samesource(desc, dataset, n_frequent_words, max_n_of_pairs_per_clas
     """
     clf = lir.CalibratedScorer(classifier, calibrator)
 
-    if 'fisher' in dataset:
+    if 'asr_output' in dataset:
+        ds = asr_fisher_data.ASRFisherDataSource(dataset, extra_file, n_frequent_words=n_frequent_words,
+                                                 min_words_in_conv=min_words_in_conv)
+    elif 'fisher' in dataset:
         ds = fisher_data.FisherDataSource(dataset, extra_file, n_frequent_words=n_frequent_words,
                                           min_words_in_conv=min_words_in_conv)
-        X, y = ds.get()
     else:
         ds = data.DataSource(dataset, n_frequent_words=n_frequent_words)
-        X, y = ds.get()
+
+    X, y = ds.get()
     assert X.shape[0] > 0
 
     desc_pre = '; '.join(name for name, tr in preprocessor.steps)
