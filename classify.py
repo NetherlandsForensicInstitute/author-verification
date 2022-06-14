@@ -244,9 +244,9 @@ def get_pairs(X, y, conv_ids, voc_conv_pairs, voc_scores, sample_size):
     voc_scores = vocalise score for each pair in the voc_conv_pairs
     sample_size = maximum number of samples per label
 
-    actual number of samples is expected to be smaller if vocalize scores are missing!!
+    actual number of samples is expected to be smaller if vocalise scores are missing!!
 
-    return: transcriptions pairs, labels 0 or 1, vocalize score
+    return: transcriptions pairs, labels 0 or 1, vocalise score
     """
     # pair instances: same source and different source
     pairs_transformation = transformers.InstancePairing(same_source_limit=int(sample_size),
@@ -317,7 +317,7 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     """
 
     clf = lir.CalibratedScorer(classifier, calibrator)  # set up classifier and calibrator for authorship technique
-    voc_cal = lir.ScalingCalibrator(lir.KDECalibratorInProbabilityDomain())  # set up calibrator for vocalise output
+    voc_cal = lir.ScalingCalibrator(lir.LogitCalibratorInProbabilityDomain())  # set up calibrator for vocalise output
     mfw_voc_clf = lir.CalibratedScorer(LogisticRegression(class_weight='balanced'),
                                        calibrator)  # set up logit as classifier and calibrator for a type of fusion
     features_clf = lir.CalibratedScorer(clf.scorer.steps[1][1],
@@ -366,8 +366,8 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         lrs_mfw.append(clf.predict_lr(X_test))
         y_all.append(y_test)
 
-        n_same = int(np.sum(np.concatenate(y_all)))
-        n_diff = int(y.size - np.sum(np.concatenate(y_all)))
+        n_same = int(np.sum(y_test))
+        n_diff = int(y.size - n_same)
 
         LOG.info(f'  counts by class: diff={n_diff}; same={n_same}')
 
@@ -553,7 +553,7 @@ def run(dataset, voc_data, resultdir):
 
     exp.parameter('dataset', dataset)
     exp.parameter('voc_data', voc_data)
-    exp.parameter('device', 'telephone')  # options: telephone, headset, SM58close, AKGC400BL, SM58far
+    exp.parameter('device', 'headset')  # options: telephone, headset, SM58close, AKGC400BL, SM58far
 
     exp.parameter('min_num_of_words', 50)
 
@@ -570,7 +570,7 @@ def run(dataset, voc_data, resultdir):
                   [('man_logit', logit), ('bray_svm', svm_br), ('bray_logit', logit_br)],
                   include_default=False)
 
-    exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
+    exp.parameter('calibrator', lir.ScalingCalibrator(lir.LogitCalibrator()))
     exp.parameter('repeats', 10)
 
     try:
