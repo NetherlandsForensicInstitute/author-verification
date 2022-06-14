@@ -14,19 +14,20 @@ import lir
 from lir import transformers
 from matplotlib import pyplot as plt
 import numpy as np
-import json
 import scipy.spatial
 import scipy.stats
 from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
 import sklearn.model_selection
 import sklearn.neighbors
 import sklearn.pipeline
 import sklearn.preprocessing
 import sklearn.svm
 from tqdm import tqdm
-from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_curve, roc_auc_score
 
-from authorship import data
+from authorship import frida_data
+from authorship import vocalize_data
 from authorship import experiments
 
 DEFAULT_LOGLEVEL = logging.WARNING
@@ -77,7 +78,7 @@ class KdeCdfTransformer(sklearn.base.TransformerMixin):
 
             kernel = sklearn.neighbors.KernelDensity(kernel='gaussian', bandwidth=.1).fit(feature_values.reshape(-1, 1))
             precomputed_values = np.arange(self._resolution + 1).reshape(-1, 1) / self._resolution * (
-                        upper - lower) + lower
+                    upper - lower) + lower
             density = np.exp(kernel.score_samples(precomputed_values))
             cumulative_density = np.cumsum(density)
             cumulative_density = cumulative_density / cumulative_density[-1]
@@ -234,76 +235,99 @@ class VectorDistance(sklearn.base.TransformerMixin):
         return np.stack([p0, 1 / p0], axis=1)
 
 
-class makeplots:
-    def __init__(self, path_prefix=None):
-        self.path_prefix = path_prefix
+def get_pairs(X, y, conv_ids, voc_conv_pairs, voc_scores, sample_size):
+    """
+    X = conversations - from the transcriptions
+    y = labels (speaker id) - from the transcriptions
+    conv_ids = conversation id per instance - from the transcriptions
+    voc_conv_pairs = pair of conversation ids compared using vocalise
+    voc_scores = vocalise score for each pair in the voc_conv_pairs
+    sample_size = maximum number of samples per label
 
-    def __call__(self, lrs, y, title='', shortname=''):
-        n_same = int(np.sum(y))
-        n_diff = int(y.size - np.sum(y))
-        cllr = lir.metrics.cllr(lrs, y)
-        acc = np.mean((lrs > 1) == y)
+    actual number of samples is expected to be smaller if vocalize scores are missing!!
 
-        LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
-        LOG.info(
-            f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y == 0])))}; {np.exp(np.mean(np.log(lrs[y == 1])))}')
-        LOG.info(
-            f'  cllr, acc: {cllr, acc}')
-
-        path_prefix = os.path.join(self.path_prefix, shortname.replace('*', ''))
-        tippet_path = f'{path_prefix}_tippet.png' if self.path_prefix is not None else None
-        pav_path = f'{path_prefix}_pav.png' if self.path_prefix is not None else None
-        ece_path = f'{path_prefix}_ece.png' if self.path_prefix is not None else None
-
-        kw_figure = {}
-
-        lir.plotting.plot_tippett(lrs, y, savefig=tippet_path, kw_figure=kw_figure)
-        lir.plotting.plot_pav(lrs, y, savefig=pav_path, kw_figure=kw_figure)
-        lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
-
-
-def get_pairs(X, y, authors_subset, sample_size):
-    X_subset = X[np.isin(y, authors_subset), :]
-    y_subset = y[np.isin(y, authors_subset)]
-
+    return: transcriptions pairs, labels 0 or 1, vocalize score
+    """
     # pair instances: same source and different source
-    return transformers.InstancePairing(same_source_limit=sample_size // 2,
-                                        different_source_limit=sample_size // 2).transform(X_subset, y_subset)
+    pairs_transformation = transformers.InstancePairing(same_source_limit=int(sample_size),
+                                                        different_source_limit=int(sample_size))
+    X_pairs, y_pairs = pairs_transformation.transform(X, y)
+    pairing = pairs_transformation.pairing  # indices of pairs based on the transcriptions
+    conv_pairs = np.apply_along_axis(lambda a: np.array([conv_ids[a[0]], conv_ids[a[1]]]), 1,
+                                     pairing)  # from indices to the actual pairs
+
+    # search the pair based on transcription within the conv_ids (order of the speaker ids is not crucial)
+    # and return the vocalise score if no score exists set value to NaN
+    voc_scores_subset = np.apply_along_axis(
+        lambda a: voc_scores[np.where(voc_conv_pairs == set(a))[0]][0][0]
+        if len(np.where(voc_conv_pairs == set(a))[0]) == 1 else np.NaN, 1, conv_pairs)
+
+    # to be able to combine the two systems we work only with the data that overlap
+    voc_score_clean = voc_scores_subset[~np.isnan(voc_scores_subset)]
+    y_pairs_clean = y_pairs[~np.isnan(voc_scores_subset)]
+    X_pairs_clean = X_pairs[~np.isnan(voc_scores_subset), :, :]
+
+    return X_pairs_clean, voc_score_clean, y_pairs_clean
 
 
-def get_batch_simple(X, y, repeats, max_n_of_pairs_per_class):
+def get_batch_simple(X, y, conv_ids, voc_conv_pairs, voc_scores, repeats, max_n_of_pairs_per_class, preprocessor):
     for i in range(repeats):
         authors = np.unique(y)
         authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
 
-        sample_size = 2 * max_n_of_pairs_per_class
-        X_train, y_train = get_pairs(X, y, authors_train, sample_size)
-        X_test, y_test = get_pairs(X, y, authors_test, sample_size)
+        # prep data for train
+        X_subset_for_train = X[np.isin(y, authors_train), :]
+        X_subset_for_train = preprocessor.fit_transform(X_subset_for_train)
+        y_subset_for_train = y[np.isin(y, authors_train)]
+        conv_ids_subset_for_train = conv_ids[np.isin(y, authors_train)]
 
-        yield X_train, y_train, X_test, y_test
+        # prep data for test
+        X_subset_for_test = X[np.isin(y, authors_test), :]
+        X_subset_for_test = preprocessor.transform(X_subset_for_test)
+        y_subset_for_test = y[np.isin(y, authors_test)]
+        conv_ids_subset_for_test = conv_ids[np.isin(y, authors_test)]
+
+        # max_n_of_pairs_per_class affects only the train set, the size of the test set is fixed (for fair comparisons
+        # of runs with different max_n_of_pairs_per_class).
+        X_train, X_voc_train, y_train = get_pairs(X_subset_for_train, y_subset_for_train, conv_ids_subset_for_train,
+                                                  voc_conv_pairs, voc_scores, max_n_of_pairs_per_class)
+        X_test, X_voc_test, y_test = get_pairs(X_subset_for_test, y_subset_for_test, conv_ids_subset_for_test,
+                                               voc_conv_pairs, voc_scores, 2000)
+
+        yield X_train, X_voc_train, y_train, X_test, X_voc_test, y_test
 
 
-def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, max_n_of_pairs_per_class, preprocessor, classifier, calibrator,
-                        plot=None, repeats=1):
+def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n_of_pairs_per_class, preprocessor,
+                        classifier, calibrator, repeats=1, min_num_of_words=0, all_metrics=False):
     """
     Run an experiment with the parameters provided.
 
     :param desc: free text description of the experiment
-    :param frida_path: path to transcript index file
-    :param n_frequent_words: int: number of most frequent words
-    :param tokens_per_sample: int: number of tokens per sample (sample length)
+    :param dataset: path to transcript index file
+    :param voc_data: path to vocalise output
+    :param n_frequent_words: int: number of most frequent words to be used in the analysis
+    :param max_n_of_pairs_per_class: maximum number of pairs per class (same- or different-source) to be taken
     :param preprocessor: Pipeline: an sklearn pipeline
     :param classifier: Pipeline: an sklearn pipeline with a classifier as last element
     :param calibrator: a LIR calibrator
-    :param plot: a plotting function
     :param repeats: int: the number of times the experiment is run
-    :return: a CLLR
-    """
-    # calibrator = lir.plotting.PlottingCalibrator(calibrator, lir.plotting.plot_score_distribution_and_calibrator_fit)
-    clf = lir.CalibratedScorer(classifier, calibrator)
 
-    ds = data.DataSource(dataset, n_frequent_words=n_frequent_words, tokens_per_sample=tokens_per_sample)
-    X, y = ds.get()
+    :return: cllr, accuracy, eer, recall, precision (if all_metrics=True then cllr, cllr_min, cllr_cal, accuracy, eer,
+             recall, true negative rate, precision, mean_logLR_diff, mean_logLR_same)
+    """
+
+    clf = lir.CalibratedScorer(classifier, calibrator)  # set up classifier and calibrator for authorship technique
+    voc_cal = lir.ScalingCalibrator(lir.KDECalibratorInProbabilityDomain())  # set up calibrator for vocalise output
+    mfw_voc_clf = lir.CalibratedScorer(LogisticRegression(class_weight='balanced'),
+                                       calibrator)  # set up logit as classifier and calibrator for a type of fusion
+    features_clf = lir.CalibratedScorer(clf.scorer.steps[1][1],
+                                        calibrator)  # set up classifier and calibrator for a type of fusion
+
+    ds = frida_data.FridaDataSource(dataset, n_frequent_words=n_frequent_words, min_num_of_words=min_num_of_words)
+    X, y, conv_ids = ds.get()
+    voc_ds = vocalize_data.VocalizeDataSource(voc_data, device=device)
+    voc_conv_pairs, voc_scores = voc_ds.get()
+
     assert X.shape[0] > 0
 
     desc_pre = '; '.join(name for name, tr in preprocessor.steps)
@@ -313,59 +337,158 @@ def evaluate_samesource(desc, dataset, n_frequent_words, tokens_per_sample, max_
     LOG.info(f'{desc}: number of speakers: {np.unique(y).size}')
     LOG.info(f'{desc}: number of instances: {y.size}')
 
-    X = preprocessor.fit_transform(X)
-
-    lrs = []
+    lrs_mfw = []
+    lrs_voc = []
+    lrs_comb_a = []
+    lrs_comb_b = []
+    lrs_features = []
     y_all = []
-    for X_train, y_train, X_test, y_test in tqdm(get_batch_simple(X, y, repeats, max_n_of_pairs_per_class)):
-        # fit a classifier and calculate LRs
+
+    for X_train, X_voc_train, y_train, X_test, X_voc_test, y_test in tqdm(
+            get_batch_simple(X, y, conv_ids, voc_conv_pairs, voc_scores, repeats,
+                             max_n_of_pairs_per_class, preprocessor)):
+
+        # we consider four ways to combine the mfw method with the voc output
+        # 1. assume that mfw and voc LR are independent and multiply them (m1)
+        # 2a. apply logit using as input the mfc and the voc score, then calibrate the resulted score (m2a)
+        # 2b. apply logit using as input the mfc score, the voc score, and their product, then calibrate
+        #     the resulted score (m2a)
+        # 3. use the voc score as additional feature to the mfw input vector (m3)
+        # NOTE: m3 can be used only if the scorer is a classification alg, otherwise m3 = m2a with scorer = logit
+
+        # calculate LRs for vocalize output (for m1)
+        # remember: vocalize outputs uncalibrated LRs
+        voc_cal.fit(X=X_voc_train, y=y_train)
+        lrs_voc.append(voc_cal.transform(X_voc_test))
+
+        # mfw - fit classifier and calculate LRs (for m1, the resulted scorer can also be used for both variants of m2)
         clf.fit(X_train, y_train)
-        lrs.append(clf.predict_lr(X_test))
+        lrs_mfw.append(clf.predict_lr(X_test))
         y_all.append(y_test)
 
-    lrs = np.concatenate(lrs)
+        # scale voc_score to match the value range of the mfw classifier/data prep for mfw (0-1) (for m2 and m3)
+        scaler = sklearn.preprocessing.MinMaxScaler()
+        scaler.fit(X_voc_train.reshape(-1, 1))
+        X_voc_train_norm = scaler.transform(X_voc_train.reshape(-1, 1)).T
+        X_voc_test_norm = scaler.transform(X_voc_test.reshape(-1, 1)).T
+
+        # take scores from mfw scorer (for m2)
+        mfw_scores_train = lir.apply_scorer(clf.scorer, X_train)
+
+        # ... and combine with voc output using logit then calibrate (for m2a)
+        X_comb_train_a = np.vstack((mfw_scores_train, X_voc_train_norm)).T
+        mfw_voc_clf.fit(X_comb_train_a, y_train)
+
+        mfw_scores_test = lir.apply_scorer(clf.scorer, X_test)
+        X_comb_test_a = np.vstack((mfw_scores_test, X_voc_test_norm)).T
+        lrs_comb_a.append(mfw_voc_clf.predict_lr(X_comb_test_a))
+
+        # ... and combine with voc output and their product using logit then calibrate (for m2b)
+        prod_train = X_comb_train_a[:, 0] * X_comb_train_a[:, 1]
+        X_comb_train_b = np.vstack((mfw_scores_train, X_voc_train_norm, prod_train)).T
+        mfw_voc_clf.fit(X_comb_train_b, y_train)
+        prod_test = X_comb_test_a[:, 0] * X_comb_test_a[:, 1]
+        X_comb_test_b = np.vstack((mfw_scores_test, X_voc_test_norm, prod_test)).T
+        lrs_comb_b.append(mfw_voc_clf.predict_lr(X_comb_test_b))
+
+        # ... and append voc output to mfw features then fit scorer and calibrate (for m3)
+        X_train_onevector = clf.scorer.steps[0][1].transform(X_train)
+        X_train_onevector = np.column_stack((X_train_onevector, X_voc_train_norm.T))
+        features_clf.fit(X_train_onevector, y_train)
+
+        X_test_onevector = clf.scorer.steps[0][1].transform(X_test)
+        X_test_onevector = np.column_stack((X_test_onevector, X_voc_test_norm.T))
+        lrs_features.append(features_clf.predict_lr(X_test_onevector))
+
+    lrs_mfw = np.concatenate(lrs_mfw)
+    lrs_voc = np.concatenate(lrs_voc)
+    lrs_comb_a = np.concatenate(lrs_comb_a)
+    lrs_comb_b = np.concatenate(lrs_comb_b)
+    lrs_features = np.concatenate(lrs_features)
     y_all = np.concatenate(y_all)
 
-    if plot is not None:
-        plot(lrs, y_all, title=title, shortname=desc)
+    # calculate metrics for each method and log them
+    mfw_res = calculate_metrics(lrs_mfw, y_all, full_list=all_metrics)
+    voc_res = calculate_metrics(lrs_voc, y_all, full_list=all_metrics)
+    lrs_multi = np.multiply(lrs_mfw, lrs_voc)
+    lrs_multi_res = calculate_metrics(lrs_multi, y_all)
+    comb_res_a = calculate_metrics(lrs_comb_a, y_all, full_list=all_metrics)
+    comb_res_b = calculate_metrics(lrs_comb_b, y_all, full_list=all_metrics)
+    feat_res = calculate_metrics(lrs_features, y_all, full_list=all_metrics)
 
-    cllr = lir.metrics.cllr(lrs, y_all)
-    cllrmin = lir.metrics.cllr_min(lrs, y_all)
-    cllrcal = cllr - cllrmin
-    acc = np.mean((lrs > 1) == y_all)
-    recall = np.mean(lrs[y_all == 1] > 1) # true positive rate
-    precision = np.mean(y_all[lrs > 1] == 1)
-    tnr = np.mean(lrs[y_all == 0] < 1) # true negative rate
-    mean_logLR_diff = np.mean(np.log(lrs[y_all == 0]))
-    mean_logLR_same = np.mean(np.log(lrs[y_all == 1]))
+    n_same = int(np.sum(y_all))
+    n_diff = int(y.size - np.sum(y_all))
 
-    fpr, tpr, threshold = roc_curve(list(y_all), list(lrs), pos_label=1)
+    LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
+    LOG.info(f'  mfw only: {mfw_res._fields} = {list(np.round(mfw_res, 3))}')
+    LOG.info(f'  voc only: {voc_res._fields} = {list(np.round(voc_res, 3))}')
+    LOG.info(f'  lrs comb by multi: {lrs_multi_res._fields} = {list(np.round(lrs_multi_res, 3))}')
+    LOG.info(f'  lrs comb by logiA: {comb_res_a._fields} = {list(np.round(comb_res_a, 3))}')
+    LOG.info(f'  lrs comb by logiB: {comb_res_b._fields} = {list(np.round(comb_res_b, 3))}')
+    LOG.info(f'  lrs comb by featu: {feat_res._fields} = {list(np.round(feat_res, 3))}')
+
+    return mfw_res, voc_res, lrs_multi_res, comb_res_a, comb_res_b, feat_res
+
+
+def calculate_metrics(lrs, y, full_list=False):
+    """
+    calculate several metrics
+
+    :param lrs: lrs as derived by the evaluate_samesource
+    :param y: true labels
+    :param full_list: if True more metrics are calculated
+
+    :return: [namedtuple] cllr, accuracy, eer, recall, precision (if full_list=True then cllr, cllr_min, cllr_cal,
+                          accuracy, eer, recall, true negative rate, precision, mean_logLR_diff, mean_logLR_same)
+    """
+
+    cllr = lir.metrics.cllr(lrs, y)
+    acc = np.mean((lrs > 1) == y)
+    recall = np.mean(lrs[y == 1] > 1)  # true positive rate
+    precision = np.mean(y[lrs > 1] == 1)
+
+    fpr, tpr, threshold = roc_curve(list(y), list(lrs), pos_label=1)
     fnr = 1 - tpr
     eer = fpr[np.nanargmin(np.absolute((fnr - fpr)))]
+    auc = roc_auc_score(list(y), list(lrs))
 
-    Metrics = collections.namedtuple('Metrics', ['cllr', 'cllrmin', 'cllrcal', 'accuracy', 'eer', 'recall', 'tnr',
-                                                 'precision', 'mean_logLR_diff', 'mean_logLR_same'])
+    if full_list:
+        cllrmin = lir.metrics.cllr_min(lrs, y)
+        cllrcal = cllr - cllrmin
+        tnr = np.mean(lrs[y == 0] < 1)  # true negative rate
+        mean_logLR_diff = np.mean(np.log(lrs[y == 0]))
+        mean_logLR_same = np.mean(np.log(lrs[y == 1]))
+        Metrics = collections.namedtuple('Metrics', ['cllr', 'cllrmin', 'cllrcal', 'accuracy', 'eer', 'auc', 'recall',
+                                                     'tnr', 'precision', 'mean_logLR_diff', 'mean_logLR_same'])
+        res = Metrics(cllr, cllrmin, cllrcal, acc, eer, auc, recall, tnr, precision, mean_logLR_diff, mean_logLR_same)
+    else:
+        Metrics = collections.namedtuple('Metrics', ['cllr', 'accuracy', 'eer', 'auc', 'recall', 'precision'])
+        res = Metrics(cllr, acc, eer, auc, recall, precision)
 
-    return Metrics(cllr, cllrmin, cllrcal, acc, eer, recall, tnr, precision, mean_logLR_diff, mean_logLR_same), lrs, y_all
+    return res
 
 
 def aggregate_results(out_dir, results):
+    '''
+    prints resutls
 
+    :param out_dir: [outdated at the moment]
+    :param results: namedtuple (as return by the evaluate_samesource)
+
+    '''
     for params, result in results:
         desc = ', '.join(f'{name}={value}' for name, value in params)
-        print(f'{desc}: {result[0]._fields} = {list(np.round(result[0], 3))}')
-
-        res = {'param': desc, 'metrics': result[0], 'lrs': result[1].tolist(), 'y': result[2].tolist()}
-
-        path_prefix = os.path.join(out_dir, desc.replace('*', ''))
-        lrs_path = f'{path_prefix}.txt'
-
-        with open(lrs_path, 'w', encoding='utf-8') as f:
-            f.write(json.dumps(res, indent=4))
+        print(f'mfw only: {result[0]._fields} = {list(np.round(result[0], 3))}--{desc}')
+        print(f'voc only: {result[1]._fields} = {list(np.round(result[1], 3))}--{desc}')
+        print(f'lrs comb by multi: {result[2]._fields} = {list(np.round(result[2], 3))}--{desc}')
+        print(f'lrs comb by logiA: {result[3]._fields} = {list(np.round(result[3], 3))}--{desc}')
+        print(f'lrs comb by logiB: {result[4]._fields} = {list(np.round(result[4], 3))}--{desc}')
+        if len(result) == 6:
+            print(f'lrs comb by featu: {result[5]._fields} = {list(np.round(result[5], 3))}--{desc}')
 
 
-def run(dataset, resultdir):
-    ### PREPROCESSORS
+def run(dataset, voc_data, resultdir):
+    ### PREPROCESSORS for authorship verification
 
     prep_none = sklearn.pipeline.Pipeline([
         ('scale:none', None),
@@ -382,11 +505,6 @@ def run(dataset, resultdir):
         ('pop:none', None),
     ])
 
-    prep_sum = sklearn.pipeline.Pipeline([
-        ('scale:sum', sklearn.preprocessing.Normalizer(norm='l1')),
-        ('pop:none', None),
-    ])
-
     prep_gauss = sklearn.pipeline.Pipeline([
         ('pop:gauss', GaussianCdfTransformer()),  # cumulative density function for each feature
         # ('pop:gauss', sklearn.preprocessing.QuantileTransformer()),  # cumulative density function for each feature
@@ -397,66 +515,63 @@ def run(dataset, resultdir):
         ('pop:kde', KdeCdfTransformer()),  # cumulative density function for each feature
     ])
 
-    ### CLASSIFIERS
-
-    dist_sh = sklearn.pipeline.Pipeline([
-        ('dist:shan', VectorDistance(scipy.spatial.distance.jensenshannon)),
-    ])
-
-    dist_br = sklearn.pipeline.Pipeline([
-        ('dist:bray', VectorDistance(scipy.spatial.distance.braycurtis)),
-    ])
-
-    dist_ma = sklearn.pipeline.Pipeline([
-        ('dist:man', VectorDistance(scipy.spatial.distance.cityblock)),
-    ])
+    ### CLASSIFIERS for authorship verification (a element-wise distance and a binaly ML alg is expected)
 
     logit = sklearn.pipeline.Pipeline([
         ('diff:abs', transformers.AbsDiffTransformer()),
-        # ('shan', ShanDistance()),
         ('clf:logit', LogisticRegression(max_iter=600, class_weight='balanced')),
     ])
 
     logit_br = sklearn.pipeline.Pipeline([
         ('bray', BrayDistance()),
-        ('clf:logit', LogisticRegression(class_weight='balanced')),
+        ('clf:logit', LogisticRegression(max_iter=600, class_weight='balanced')),
     ])
 
-    svc = sklearn.pipeline.Pipeline([
+    svm = sklearn.pipeline.Pipeline([
         ('diff:abs', transformers.AbsDiffTransformer()),
         # ('diff:shan', ShanDistanceVector()),
         # ('diff:bray', BrayDistance()),
         ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
     ])
 
+    svm_br = sklearn.pipeline.Pipeline([
+        ('diff:bray', BrayDistance()),
+        ('clf:svc', sklearn.svm.SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
+    ])
+
+    br_mlp = sklearn.pipeline.Pipeline([
+        ('diff:bray', BrayDistance()),
+        ('clf:mlp', MLPClassifier(solver='adam', max_iter=800, alpha=0.001, hidden_layer_sizes=(5,), random_state=1)),
+    ])
+
     exp = experiments.Evaluation(evaluate_samesource, partial(aggregate_results, resultdir))
 
     exp.parameter('dataset', dataset)
-    exp.parameter('plot', makeplots(resultdir))
+    exp.parameter('voc_data', voc_data)
+    exp.parameter('device', 'telephone')  # options: telephone, headset, SM58close, AKGC400BL, SM58far
+
+    exp.parameter('min_num_of_words', 50)
 
     exp.parameter('n_frequent_words', 200)
-    exp.addSearch('n_frequent_words', [10, 50, 100, 200, 300, 400, 500], include_default=False)
+    exp.addSearch('n_frequent_words', [100, 200, 300], include_default=False)
 
-    exp.parameter('tokens_per_sample', 600)
-    exp.addSearch('tokens_per_sample', [200, 400, 600, 800, 1000, 1200], include_default=False)
-
-    exp.parameter('max_n_of_pairs_per_class', 2000)
-    exp.addSearch('max_n_of_pairs_per_class', [500, 1000, 2000], include_default=False)
+    exp.parameter('max_n_of_pairs_per_class', 4000)
+    exp.addSearch('max_n_of_pairs_per_class', [2500, 3000, 4000], include_default=False)
 
     exp.parameter('preprocessor', prep_gauss)
 
-    # exp.parameter('classifier', ('dist_man', dist_ma))
     exp.parameter('classifier', ('bray_logit', logit_br))
-    exp.addSearch('classifier', [('dist_man', dist_ma), ('dist_bray', dist_br), ('man_logit', logit),
-                                 ('bray_logit', logit_br)], include_default=False)
+    exp.addSearch('classifier',
+                  [('man_logit', logit), ('bray_svm', svm_br), ('bray_logit', logit_br)],
+                  include_default=False)
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
     exp.parameter('repeats', 10)
 
     try:
-        # exp.runDefaults()
-        exp.runSearch('tokens_per_sample')
-        # exp.runFullGrid(['tokens_per_sample', 'classifier'])
+        exp.runDefaults()
+        # exp.runSearch('max_n_of_pairs_per_class')
+        # exp.runFullGrid(['n_frequent_words', 'max_n_of_pairs_per_class'])
 
     except Exception as e:
         LOG.fatal(e.args[1])
@@ -476,6 +591,9 @@ if __name__ == '__main__':
     parser.add_argument('--data', metavar='FILENAME',
                         help=f'dataset to be used; index file as generated by `sha256sum` (default: {config.data})',
                         default=config.data)
+    parser.add_argument('--vocalise-data', metavar='FILENAME',
+                        help=f'vocalize output to be used; (default: {config.vocalise_data})',
+                        default=config.vocalise_data)
     parser.add_argument('--output-directory', '-o', metavar='DIRNAME',
                         help=f'path to generated output files (default: {config.resultdir})', default=config.resultdir)
     args = parser.parse_args()
@@ -483,4 +601,4 @@ if __name__ == '__main__':
     setupLogging(args)
 
     os.makedirs(args.output_directory, exist_ok=True)
-    run(args.data, args.output_directory)
+    run(args.data, args.vocalise_data, args.output_directory)
