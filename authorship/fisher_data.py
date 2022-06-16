@@ -110,7 +110,8 @@ def read_session(lines):
 
     words = [re.sub(r'^\'', '', i) for i in words]  # remove ' from the beginning of a word
     words = [re.sub(r'\'$', '', i) for i in words]  # remove ' from the end of a word
-    words = [j for i in words if (re.search(r'-$', i) is None) & (i != 'uh-huh') for j in re.split('-', i)]  # remove - for splitting words
+    words = [j for i in words if (re.search(r'-$', i) is None) & (i != 'uh-huh')
+             for j in re.split('-', i)]  # remove - for splitting words
 
     return words
 
@@ -198,7 +199,7 @@ def filter_speakers_text(speakerdict, wordlist, min_words_in_conv):
             continue
         else:
             texts = list(f(texts))
-            filtered[label] = [100 * i / n_words for i in texts]
+            filtered[label] = [i / n_words for i in texts]
 
     return filtered
 

@@ -19,7 +19,6 @@ import scipy.spatial
 import scipy.stats
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
-from sklearn.ensemble import GradientBoostingClassifier
 import sklearn.model_selection
 import sklearn.neighbors
 import sklearn.pipeline
@@ -412,17 +411,6 @@ def run(dataset, resultdir, extra_data_file=None):
         ('clf:svc', SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
     ])
 
-    br_svc_linear = sklearn.pipeline.Pipeline([
-        ('diff:bray', BrayDistance()),
-        ('scaler', sklearn.preprocessing.StandardScaler()),
-        ('clf:svc', SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
-    ])
-
-    br_xgb = sklearn.pipeline.Pipeline([
-        ('diff:bray', BrayDistance()),
-        ('clf:xgb', GradientBoostingClassifier(n_estimators=100, learning_rate=1.0, max_depth=4, random_state=0)),
-    ])
-
     exp = experiments.Evaluation(evaluate_samesource, partial(aggregate_results, resultdir))
 
     exp.parameter('dataset', dataset)
@@ -443,7 +431,7 @@ def run(dataset, resultdir, extra_data_file=None):
     exp.addSearch('classifier', [('bray_logit', br_logit), ('man_logit', man_logit)], include_default=False)
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
-    exp.parameter('repeats', 10)
+    exp.parameter('repeats', 100)
 
     try:
         exp.runDefaults()
