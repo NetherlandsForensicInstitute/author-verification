@@ -245,12 +245,15 @@ class makeplots:
         n_diff = int(y.size - np.sum(y))
         cllr = lir.metrics.cllr(lrs, y)
         acc = np.mean((lrs > 1) == y)
+        fpr, tpr, threshold = roc_curve(list(y), list(lrs), pos_label=1)
+        fnr = 1 - tpr
+        eer = fpr[np.nanargmin(np.absolute((fnr - fpr)))]
 
         LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
         LOG.info(
             f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y == 0])))}; {np.exp(np.mean(np.log(lrs[y == 1])))}')
         LOG.info(
-            f'  cllr, acc: {cllr, acc}')
+            f'  cllr, acc, eer: {cllr, acc, eer}')
 
         # path_prefix = os.path.join(self.path_prefix, shortname.replace('*', ''))
         # tippet_path = f'{path_prefix}_tippet.png' if self.path_prefix is not None else None
@@ -331,6 +334,15 @@ def evaluate_samesource(desc, dataset, n_frequent_words, max_n_of_pairs_per_clas
         lrs.append(clf.predict_lr(X_test))
         y_all.append(y_test)
 
+        # n_same_train = int(np.sum(y_train))
+        # n_diff_train = int(y_train.size - n_same_train)
+        #
+        # n_same_test = int(np.sum(y_test))
+        # n_diff_test = int(y_test.size - n_same_test)
+        #
+        # LOG.info(f'  counts by class (train): diff={n_diff_train}; same={n_same_train}')
+        # LOG.info(f'  counts by class (test): diff={n_diff_test}; same={n_same_test}')
+
     lrs = np.concatenate(lrs)
     y_all = np.concatenate(y_all)
 
@@ -403,7 +415,7 @@ def run(dataset, resultdir, extra_data_file=None):
 
     br_logit = sklearn.pipeline.Pipeline([
         ('bray', BrayDistance()),
-        ('clf:logit', LogisticRegression(class_weight='balanced')),
+        ('clf:logit', LogisticRegression(max_iter=600, class_weight='balanced')),
     ])
 
     man_svc_lin = sklearn.pipeline.Pipeline([

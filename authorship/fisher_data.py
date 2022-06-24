@@ -157,22 +157,28 @@ def get_frequent_words(speakers, n):
     """
     freq_bbn = collections.defaultdict(int)
     freq_ldc = collections.defaultdict(int)
+    # freq = collections.defaultdict(int)
     for sp, sp_words in speakers.items():
         for word in sp_words:
             if not re.compile("[a-z].*-$").match(word):  # exclude incomplete words
+                # freq[word] += 1
                 if bool(re.search('BBN', sp)):
                     freq_bbn[word] += 1
                 else:
                     freq_ldc[word] += 1
             else:
                 continue
+
     freq_bbn = sorted(freq_bbn.items(), key=lambda x: x[1], reverse=True)
     freq_ldc = sorted(freq_ldc.items(), key=lambda x: x[1], reverse=True)
+    # freq = sorted(freq.items(), key=lambda x: x[1], reverse=True)
 
     word_bbn = [i[0] for i in freq_bbn[:n]]
     mfw = [item for item in freq_ldc[:n] if item[0] in word_bbn]
 
+    # return freq_ldc[:n]
     return mfw
+    # return freq[:n]
 
 
 def filter_speakers_text(speakerdict, wordlist, min_words_in_conv):
@@ -188,6 +194,7 @@ def filter_speakers_text(speakerdict, wordlist, min_words_in_conv):
 
     # keep speakers with 2 or more conversations
     spk_ids_all = [k.split('_')[0] for k in speakerdict.keys()]  # keep only speaker id
+    # spk_ids_all = [k.split('_')[0] for k in speakerdict.keys() if 'BBN' in k]
     spk_with_occurrences = [v for v in np.unique(spk_ids_all) if spk_ids_all.count(v) > 1]
 
     filtered = {}

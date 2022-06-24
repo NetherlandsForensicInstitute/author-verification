@@ -162,6 +162,7 @@ def filter_speakers_text(speakerdict, wordlist, min_words_in_conv):
 
     # keep speakers with 2 or more conversations
     spk_ids_all = [k.split('_')[0] for k in speakerdict.keys()]  # keep only speaker id
+    # spk_ids_all = [k.split('_')[0] for k in speakerdict.keys() if 'BBN' in k]
     spk_with_occurrences = [v for v in np.unique(spk_ids_all) if spk_ids_all.count(v) > 1]
 
     filtered = {}
@@ -173,7 +174,7 @@ def filter_speakers_text(speakerdict, wordlist, min_words_in_conv):
             continue
         else:
             texts = list(f(texts))
-            filtered[label] = [100 * i / n_words for i in texts]
+            filtered[label] = [i / n_words for i in texts]
 
     return filtered
 
