@@ -152,12 +152,12 @@
         "REa6c8d491c9f016670022cf8aed3e7051_A;C07_F": "bad-"
     },
     "splits": [
-        "a-and",
         "uh-huh",
         "woo-hoo",
+        "a-and",
         "pre-band",
-        "blu-ray",
-        "dog-sitting"
+        "dog-sitting",
+        "blu-ray"
     ],
     "splits_to_check": {
         "RE239f69a25846d87b0083f454396cef4a_B;C07_F": "uh-huh",
@@ -169,7 +169,7 @@
         "RE7c6a9aa13e72ebbb390f429a53d7b0f5_B;C04_M": "uh-huh",
         "REbd02a34ff6131dea3f2aa570c9d245e9_B;C05_M": "uh-huh",
         "REbd2309fff4360f7a6c6fa03a8862c779_B;NT_E01_M": "blu-ray",
-        "REbd2309fff4360f7a6c6fa03a8862c779_A;C04_M": "blu-ray || uh-huh",
+        "REbd2309fff4360f7a6c6fa03a8862c779_A;C04_M": "uh-huh || blu-ray",
         "REc237c916b45224224972852be3734baf_changed_A;NT_E01_M": "a-and",
         "REc726aa510e72f38cf70429952a1f5ffe_B;C05_M": "uh-huh",
         "REe3d2b24d6fe16ee1f67942699fa4e1e9_A;C07_F": "pre-band"

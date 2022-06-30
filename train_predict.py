@@ -7,8 +7,6 @@ import traceback
 import warnings
 import json
 import collections
-import pickle
-import joblib
 
 import confidence
 import lir
@@ -27,7 +25,9 @@ import sklearn.preprocessing
 
 
 from authorship import fisher_data
+from authorship import asr_fisher_data
 from authorship import roxsd_data
+from authorship import asr_roxsd_data
 from authorship import experiments
 
 
@@ -62,12 +62,13 @@ class BrayDistance(sklearn.base.TransformerMixin):
         return np.abs(right - left) / (np.abs(right + left) + 1)
 
 
-def get_batch_simple(X, y, conv_ids, repeats, pairs=None, max_n_of_pairs_per_class=None):
+def get_batch_simple(X, y, conv_ids, repeats, preprocessor, pairs=None, max_n_of_pairs_per_class=None):
     for i in range(repeats):
         authors = np.unique(y)
-        authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.71, random_state=i)
+        authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
 
         X_sub_train = X[np.isin(y, authors_train), :]
+        # X_sub_train = preprocessor.fit_transform(X_sub_train)  # for the moment outside the function for being able to apply same tranform to roxsd
         y_sub_train = y[np.isin(y, authors_train)]
         conv_ids_sub_train = conv_ids[np.isin(y, authors_train)]
 
@@ -75,22 +76,19 @@ def get_batch_simple(X, y, conv_ids, repeats, pairs=None, max_n_of_pairs_per_cla
                                                  max_n_of_pairs_per_class)
 
         X_sub_test = X[np.isin(y, authors_test), :]
+        # X_sub_test = preprocessor.transform(X_sub_test)
         y_sub_test = y[np.isin(y, authors_test)]
         conv_ids_sub_test = conv_ids[np.isin(y, authors_test)]
 
         X_test, y_test, conv_test = get_pairs(X_sub_test, y_sub_test, conv_ids_sub_test, pairs,
                                               max_n_of_pairs_per_class)
 
-        print('train same: ', int(np.sum(y_train)))
-        print('train diff: ', int(y_train.size - np.sum(y_train)))
-        print('test same: ', int(np.sum(y_test)))
-        print('test diff: ', int(y_test.size - np.sum(y_test)))
-
         yield X_train, y_train, conv_train, X_test, y_test, conv_test
 
 
 def get_pairs(X, y, conv_ids, pairs=None, sample_size=None):
     # pair instances: same source and different source
+    # param: pairs: file path to file with given pairs of recordings
 
     if pairs is None:
         if sample_size is None:
@@ -103,6 +101,7 @@ def get_pairs(X, y, conv_ids, pairs=None, sample_size=None):
         pairing = pairs_transformation.pairing  # indices of pairs based on the transcriptions
         conv_pairs = np.apply_along_axis(lambda a: np.array([conv_ids[a[0]], conv_ids[a[1]]]), 1, pairing)
     else:
+        #  valid for the manual transcriptions as provided by Johan in Sept 2021
         with open(pairs, 'rt') as f:
             predefined_pairs = [[token for token in line.split() if 'target' not in token] for line in f]
         predefined_pairs = [set(pair) for pair in predefined_pairs]
@@ -148,8 +147,8 @@ def train_and_predict(desc, dataset_train, dataset_val, n_frequent_words, max_n_
 
     clf = lir.CalibratedScorer(classifier, calibrator)
 
-    ds_train = fisher_data.FisherDataSource(dataset_train, extra_file_train, n_frequent_words=n_frequent_words,
-                                      min_words_in_conv=min_words_in_conv)
+    ds_train = asr_fisher_data.ASRFisherDataSource(dataset_train, extra_file_train, n_frequent_words=n_frequent_words,
+                                                   min_words_in_conv=min_words_in_conv)
     X, y = ds_train.get()
 
     assert X.shape[0] > 0
@@ -163,6 +162,7 @@ def train_and_predict(desc, dataset_train, dataset_val, n_frequent_words, max_n_
     with open(f'{path}/wordlist.json', 'w', encoding='utf-8') as f:
         json.dump(ds_train.wordlist, f, indent=4)
 
+    # using the whole dataset for training
     X = preprocessor.fit_transform(X)
 
     X, y = transformers.InstancePairing(same_source_limit=max_n_of_pairs_per_class,
@@ -170,7 +170,7 @@ def train_and_predict(desc, dataset_train, dataset_val, n_frequent_words, max_n_
     clf.fit(X, y)
 
     # load and prep roxsd_data
-    ds_val = roxsd_data.RoxsdDataSource(dataset_val, path, min_words_in_conv=min_words_in_conv)
+    ds_val = asr_roxsd_data.ASRRoxsdDataSource(dataset_val, path, min_words_in_conv=min_words_in_conv)
     X_val, y_val, conv_ids_val = ds_val.get()
 
     assert X_val.shape[0] > 0
@@ -178,9 +178,10 @@ def train_and_predict(desc, dataset_train, dataset_val, n_frequent_words, max_n_
     X_val = preprocessor.transform(X_val)
 
     if repeats == 1:
-        X_pairs, y_pairs, conv_pairs = get_pairs(X_val, y_val, conv_ids_val, pairsdir_val)
+        # X_pairs, y_pairs, conv_pairs = get_pairs(X_val, y_val, conv_ids_val, pairsdir_val)
+        X_pairs, y_pairs, conv_pairs = get_pairs(X_val, y_val, conv_ids_val)
         lrs = clf.predict_lr(X_pairs)
-    if repeats > 1:
+    if repeats > 1:  # not sure what i have this (i tried to calibrated in roxsd data?)
         lrs = []
         y_all = []
         spec_cal = lir.ScalingCalibrator(lir.KDECalibrator())
@@ -252,9 +253,9 @@ def run(dataset_train, dataset_val, resultdir, extra_file_train=None, pairsdir_v
     exp.parameter('pairsdir_val', pairsdir_val)
     exp.parameter('resultdir', resultdir)
 
-    exp.parameter('min_words_in_conv', 10)
+    exp.parameter('min_words_in_conv', 0)
     exp.parameter('n_frequent_words', 100)
-    exp.parameter('max_n_of_pairs_per_class', 20000)
+    exp.parameter('max_n_of_pairs_per_class', 15000)
     exp.parameter('repeats', 1)
 
     exp.parameter('preprocessor', prep_gauss)

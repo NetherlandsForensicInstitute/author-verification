@@ -1,8 +1,9 @@
 /non target transcriptions
+/asr_roxsdv1_2
 
 ROXSD_v1.0.1-metadata_v3.0.1.xlsx
 trials_list_eng.txt
 roxsd_for_exploration.json
-roxsd_clean_for_streamlit
+roxsd_clean_for_streamlit.txt
 roxsd_for_streamlit.txt
 roxsd_after_cleaning.json

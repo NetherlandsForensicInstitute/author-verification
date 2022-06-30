@@ -1,5 +1,5 @@
 data: fisher/fisher_trans.sha256
 data_info: fisher/info.txt
 resultdir: output/model
-data_val: roxsd/roxsd_non_target.sha256  # for train_predict
+data_val: roxsd/asr_roxsdv1_2/asr_output_baseline_roxsdv1.txt    # for train_predict # roxsd/roxsd_non_target.sha256
 pairsdir: roxsd/trials_list_eng.txt  # for train_predict

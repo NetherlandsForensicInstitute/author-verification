@@ -19,7 +19,6 @@ import scipy.spatial
 import scipy.stats
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
-from sklearn.ensemble import GradientBoostingClassifier
 import sklearn.model_selection
 import sklearn.neighbors
 import sklearn.pipeline
@@ -29,6 +28,7 @@ from sklearn.metrics import roc_curve
 
 from authorship import data
 from authorship import fisher_data
+from authorship import asr_fisher_data
 from authorship import experiments
 
 DEFAULT_LOGLEVEL = logging.WARNING
@@ -245,12 +245,15 @@ class makeplots:
         n_diff = int(y.size - np.sum(y))
         cllr = lir.metrics.cllr(lrs, y)
         acc = np.mean((lrs > 1) == y)
+        fpr, tpr, threshold = roc_curve(list(y), list(lrs), pos_label=1)
+        fnr = 1 - tpr
+        eer = fpr[np.nanargmin(np.absolute((fnr - fpr)))]
 
         LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
         LOG.info(
             f'  average LR by class: 1/{np.exp(np.mean(-np.log(lrs[y == 0])))}; {np.exp(np.mean(np.log(lrs[y == 1])))}')
         LOG.info(
-            f'  cllr, acc: {cllr, acc}')
+            f'  cllr, acc, eer: {cllr, acc, eer}')
 
         # path_prefix = os.path.join(self.path_prefix, shortname.replace('*', ''))
         # tippet_path = f'{path_prefix}_tippet.png' if self.path_prefix is not None else None
@@ -280,11 +283,7 @@ def get_batch_simple(X, y, repeats, max_n_of_pairs_per_class):
 
         sample_size = 2 * max_n_of_pairs_per_class
         X_train, y_train = get_pairs(X, y, authors_train, sample_size)
-        print('train same: ', int(np.sum(y_train)))
-        print('train diff: ', int(y_train.size - np.sum(y_train)))
         X_test, y_test = get_pairs(X, y, authors_test, 4000)
-        print('test same: ', int(np.sum(y_test)))
-        print('test diff: ', int(y_test.size - np.sum(y_test)))
 
         yield X_train, y_train, X_test, y_test
 
@@ -306,13 +305,16 @@ def evaluate_samesource(desc, dataset, n_frequent_words, max_n_of_pairs_per_clas
     """
     clf = lir.CalibratedScorer(classifier, calibrator)
 
-    if 'fisher' in dataset:
+    if 'asr_output' in dataset:
+        ds = asr_fisher_data.ASRFisherDataSource(dataset, extra_file, n_frequent_words=n_frequent_words,
+                                                 min_words_in_conv=min_words_in_conv)
+    elif 'fisher' in dataset:
         ds = fisher_data.FisherDataSource(dataset, extra_file, n_frequent_words=n_frequent_words,
                                           min_words_in_conv=min_words_in_conv)
-        X, y = ds.get()
     else:
         ds = data.DataSource(dataset, n_frequent_words=n_frequent_words)
-        X, y = ds.get()
+
+    X, y = ds.get()
     assert X.shape[0] > 0
 
     desc_pre = '; '.join(name for name, tr in preprocessor.steps)
@@ -331,6 +333,15 @@ def evaluate_samesource(desc, dataset, n_frequent_words, max_n_of_pairs_per_clas
         clf.fit(X_train, y_train)
         lrs.append(clf.predict_lr(X_test))
         y_all.append(y_test)
+
+        # n_same_train = int(np.sum(y_train))
+        # n_diff_train = int(y_train.size - n_same_train)
+        #
+        # n_same_test = int(np.sum(y_test))
+        # n_diff_test = int(y_test.size - n_same_test)
+        #
+        # LOG.info(f'  counts by class (train): diff={n_diff_train}; same={n_same_train}')
+        # LOG.info(f'  counts by class (test): diff={n_diff_test}; same={n_same_test}')
 
     lrs = np.concatenate(lrs)
     y_all = np.concatenate(y_all)
@@ -404,23 +415,12 @@ def run(dataset, resultdir, extra_data_file=None):
 
     br_logit = sklearn.pipeline.Pipeline([
         ('bray', BrayDistance()),
-        ('clf:logit', LogisticRegression(class_weight='balanced')),
+        ('clf:logit', LogisticRegression(max_iter=600, class_weight='balanced')),
     ])
 
     man_svc_lin = sklearn.pipeline.Pipeline([
         ('diff:abs', transformers.AbsDiffTransformer()),
         ('clf:svc', SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
-    ])
-
-    br_svc_linear = sklearn.pipeline.Pipeline([
-        ('diff:bray', BrayDistance()),
-        ('scaler', sklearn.preprocessing.StandardScaler()),
-        ('clf:svc', SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced')),
-    ])
-
-    br_xgb = sklearn.pipeline.Pipeline([
-        ('diff:bray', BrayDistance()),
-        ('clf:xgb', GradientBoostingClassifier(n_estimators=100, learning_rate=1.0, max_depth=4, random_state=0)),
     ])
 
     exp = experiments.Evaluation(evaluate_samesource, partial(aggregate_results, resultdir))
@@ -443,7 +443,7 @@ def run(dataset, resultdir, extra_data_file=None):
     exp.addSearch('classifier', [('bray_logit', br_logit), ('man_logit', man_logit)], include_default=False)
 
     exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
-    exp.parameter('repeats', 50)
+    exp.parameter('repeats', 100)
 
     try:
         exp.runDefaults()

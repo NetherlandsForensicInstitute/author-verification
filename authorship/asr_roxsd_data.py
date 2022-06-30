@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import numpy as np
+import jiwer
 
 from nltk.tokenize import WhitespaceTokenizer
 from tqdm import tqdm
@@ -15,7 +16,7 @@ LOG = logging.getLogger(__name__)
 
 
 # used only to validate a model, not to train one
-class RoxsdDataSource:
+class ASRRoxsdDataSource:
     def __init__(self, data, dir, min_words_in_conv=50):
         self._data = data  # data location
         self._dir = dir  # location of the freq word list
@@ -85,56 +86,40 @@ def store_data(path, speakers):
 
 
 def clean_text(lines_to_words):
-    lines_to_words = lines_to_words.lower()
-    lines_to_words = lines_to_words.replace('\n', ' ')
-    lines_to_words = re.sub('[.,?!]', '', lines_to_words)
-    lines_to_words = re.sub('\u00B4', '\'', lines_to_words)
-    lines_to_words = re.sub('(ok)', ' okay ', lines_to_words)
-    lines_to_words = lines_to_words.replace('cannot', 'can\'t').replace('thats', 'that\'s').replace('(mm)', ' mm ')
-    lines_to_words = re.sub('\(u[hm]{0,1}m\)', ' um ', lines_to_words)
-    lines_to_words = re.sub('\(u[g]{0,1}h\)', ' uh ', lines_to_words)
-    lines_to_words = re.sub('\(hm[m]{0,1}\)', ' hm ', lines_to_words)
-    lines_to_words = re.sub('\(ah[h]{0,1}\)', ' ah ', lines_to_words)
-    lines_to_words = re.sub('\(aha[h]{0,1}\)', ' uh-huh ', lines_to_words)
-    lines_to_words = re.sub('\(oh[o]{0,2}\)', ' oh ', lines_to_words)
-    lines_to_words = re.sub('\(y[ae]{1,3}[h]{0,1}\)', ' yeah ', lines_to_words)
-    lines_to_words = re.sub('\([a-z\s].*\)', '', lines_to_words)
-    lines_to_words = lines_to_words.replace('(', ' ').replace(')', ' ')
+
 
     return lines_to_words
 
 
-def compile_data(index_path):
-    basedir = os.path.dirname(index_path)
+def compile_data(path):
     speakers_conv = collections.defaultdict(list)  # create empty dictionary list
 
-    for filepath, digest in tqdm(list(fileio.load_hashtable(index_path).items()), desc='compiling data'):
+    with open(path) as f:
 
-        with fileio.sha256_open(os.path.join(basedir, filepath), digest, on_mismatch='warn') as f:
+        lines = f.readlines()
+        for line in lines:
+            # works for roxsd1 TODO: generalize for roxsd v1 and v2
+            info = line.split(' ', 1)
+            if len(info) < 2:
+                continue  # ignore empty/weird lines
 
-            lines = f.readlines()
-            for i, line in enumerate(lines):
-                info = re.split(r'\t+', line)
-                if len(info) < 5:
-                    continue
+            text = info[1]
+            lines_to_words = text.lower()
+            lines_to_words = jiwer.ExpandCommonEnglishContractions()(lines_to_words)
+            lines_to_words = lines_to_words.replace('\n', ' ')
 
-                if info[3] == 'L':
-                    spk_id = info[0] + '_A' + ';' + info[4]  # L and A stands for caller
-                else:
-                    spk_id = info[0] + '_B' + ';' + info[4]  # R and B stands for receiver
+            tk = WhitespaceTokenizer()
+            words = tk.tokenize(lines_to_words)
 
-                lines_to_words = clean_text(info[5])
-
-                tk = WhitespaceTokenizer()
-                words = tk.tokenize(lines_to_words)
-                if len(words) > 0:  # ignore 'empty' files
-                    speakers_conv[spk_id].extend(words)
+            spk_conv_id = re.split(r'_[0-9]', info[0])[0]
+            if len(words) > 0:  # ignore 'empty' entries
+                speakers_conv[spk_conv_id].extend(words)
 
     return speakers_conv
 
 
 def get_data(path, n_frequent_words):
-    ds = RoxsdDataSource(path, n_frequent_words=n_frequent_words)
+    ds = ASRRoxsdDataSource(path, n_frequent_words=n_frequent_words)
     return ds.get()
 
 
@@ -148,18 +133,12 @@ def filter_speakers_text(speakerdict, wordlist, min_words_in_conv):
     """
     f = CreateFeatureVector(wordlist)
 
-    # keep speakers with 2 or more conversations (not valid)
-    spk_ids_all = [k.split(';')[1] for k in speakerdict.keys()]  # keep only speaker id
-    spk_with_occurrences = [v for v in np.unique(spk_ids_all) if spk_ids_all.count(v) < 4]
-    # print(spk_with_occurrences)
-
     filtered = {}
     for label, texts in speakerdict.items():
         LOG.debug('filter in subset {}'.format(label))
 
         n_words = len(texts)
-        # and label.split(';')[1] in spk_with_occurrences
-        if n_words > min_words_in_conv and label.split(';')[1] in spk_with_occurrences:
+        if n_words > min_words_in_conv:
             texts = list(f(texts))
             filtered[label] = [i / n_words for i in texts]
 
@@ -172,12 +151,12 @@ def to_vector_size(speakers):
 
     :param speakers: the output of filter_texts_size
     """
-    labels = []
+    spk_ids = []
     features = []
     conv_ids = []
     for label, texts in speakers.items():
-        labels.append(label.split(";", 1)[1])
-        conv_ids.append(label.split(";", 1)[0])
+        spk_ids.append(label.split("_RE", 1)[0])
+        conv_ids.append("RE" + label.split("_RE", 1)[1])
         features.append(texts)
 
-    return np.concatenate(features), np.array(labels), np.array(conv_ids)
+    return np.concatenate(features), np.array(spk_ids), np.array(conv_ids)

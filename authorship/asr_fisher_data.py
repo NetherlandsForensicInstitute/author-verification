@@ -5,7 +5,6 @@ import os
 import re
 import numpy as np
 import jiwer
-# import pandas as pd
 
 from nltk.tokenize import WhitespaceTokenizer
 from tqdm import tqdm
@@ -16,7 +15,7 @@ from boilerplate import fileio
 LOG = logging.getLogger(__name__)
 
 
-class FisherDataSource:
+class ASRFisherDataSource:
     def __init__(self, data, info, n_frequent_words=50, min_words_in_conv=50):
         self._n_freqwords = n_frequent_words  # number of frequent words
         self._data = data  # data location
@@ -40,11 +39,6 @@ class FisherDataSource:
 
         # extract a list of frequent words
         self._wordlist = [word for word, freq in get_frequent_words(speakers_wordlist, self._n_freqwords)]
-        # words = pd.read_csv('.\\output\\model\\fisher_vs_roxsd_600.csv')
-        # # & (words['weighted_mean_diff'] < 0.8)
-        # words = words[(words['roxsd_valid']) & (words['filler_word'] == 0) &
-        #               (words['order'] <= self._n_freqwords)]
-        # self._wordlist = words['word'].tolist()
 
         # build a dictionary of feature vectors
         speakers_conv = filter_speakers_text(speakers_wordlist, self._wordlist, self._min_words_in_conv)
@@ -97,26 +91,12 @@ def read_session(lines):
     :param lines: <class '_io.TextIOWrapper'>
     """
     lines_to_words = lines.read()
-    lines_to_words = re.sub('[0-9]*\.[0-9]*\ [0-9]*\.[0-9]*\ [AB]:', '', lines_to_words)
-    lines_to_words = jiwer.ToLowerCase()(lines_to_words)
+    lines_to_words = re.sub('[0-9]*\.[0-9]*\t[0-9]*\.[0-9]*\t', '', lines_to_words)
     lines_to_words = jiwer.ExpandCommonEnglishContractions()(lines_to_words)
-    # lines_to_words = re.sub('\(\(\s+\)\)', '', lines_to_words)  # -> <UNK>
-    # lines_to_words = re.sub('\(\([a-zUNK0-9\[\]\s\'\-_.,<>]*\)\)', '', lines_to_words)  # -> <GUESS>
-    lines_to_words = re.sub('\[\[[a-z]*\]\]', '', lines_to_words)  # -> <SKIP>
-    lines_to_words = re.sub('\[[a-z]*\]', '', lines_to_words)  # -> <SOUND>
-    lines_to_words = re.sub('\(\(', '', lines_to_words)  # remove (( and )) but keep text inside
-    lines_to_words = re.sub('\)\)', '', lines_to_words)
     lines_to_words = lines_to_words.replace('\n', ' ')
-    lines_to_words = lines_to_words.replace('~', '')
-    lines_to_words = lines_to_words.replace('*', '')
 
     tk = WhitespaceTokenizer()
     words = tk.tokenize(lines_to_words)
-
-    words = [re.sub(r'^\'', '', i) for i in words]  # remove ' from the beginning of a word
-    words = [re.sub(r'\'$', '', i) for i in words]  # remove ' from the end of a word
-    words = [j for i in words if (re.search(r'-$', i) is None) & (i != 'uh-huh')
-             for j in re.split('-', i)]  # remove - for splitting words
 
     return words
 
@@ -136,7 +116,7 @@ def compile_data(index_path, info_path):
     for filepath, digest in tqdm(list(fileio.load_hashtable(index_path).items()), desc='compiling data'):
 
         # there is some inconsistency with '-' and '_' between actual file names and in the info file
-        path_str = os.path.basename(filepath).replace('.txt', '').replace('-', '_')
+        path_str = os.path.basename(filepath).replace('.txt', '').replace('-', '_').lower()
         spk_conv_id = to_ids.get(path_str)[0] + '_in_' + path_str.replace('fe_03_', '').replace('_a', 'a'). \
             replace('_b', 'b') + '_by_' + to_ids.get(path_str)[1]  # spkid_in_convids_by_transcriber
 
@@ -149,7 +129,7 @@ def compile_data(index_path, info_path):
 
 
 def get_data(path, n_frequent_words):
-    ds = FisherDataSource(path, n_frequent_words=n_frequent_words)
+    ds = ASRFisherDataSource(path, n_frequent_words=n_frequent_words)
     return ds.get()
 
 
@@ -163,13 +143,9 @@ def get_frequent_words(speakers, n):
     freq = collections.defaultdict(int)
     for sp, sp_words in speakers.items():
         for word in sp_words:
-            if not re.compile("[a-z].*-$").match(word):  # exclude incomplete words
-                freq[word] += 1
-            else:
-                continue
+            freq[word] += 1
 
     freq = sorted(freq.items(), key=lambda x: x[1], reverse=True)
-
     return freq[:n]
 
 
@@ -186,6 +162,7 @@ def filter_speakers_text(speakerdict, wordlist, min_words_in_conv):
 
     # keep speakers with 2 or more conversations
     spk_ids_all = [k.split('_')[0] for k in speakerdict.keys()]  # keep only speaker id
+    # spk_ids_all = [k.split('_')[0] for k in speakerdict.keys() if 'BBN' in k]
     spk_with_occurrences = [v for v in np.unique(spk_ids_all) if spk_ids_all.count(v) > 1]
 
     filtered = {}
