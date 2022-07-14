@@ -18,6 +18,7 @@ import scipy.spatial
 import scipy.stats
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
+from sklearn.svm import SVC
 import sklearn.model_selection
 import sklearn.neighbors
 import sklearn.pipeline
@@ -317,11 +318,14 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     """
 
     clf = lir.CalibratedScorer(classifier, calibrator)  # set up classifier and calibrator for authorship technique
-    voc_cal = lir.ScalingCalibrator(lir.LogitCalibratorInProbabilityDomain())  # set up calibrator for vocalise output
+    voc_cal = lir.ELUBbounder(lir.LogitCalibratorInProbabilityDomain())  # set up calibrator for vocalise output
     mfw_voc_clf = lir.CalibratedScorer(LogisticRegression(class_weight='balanced'),
                                        calibrator)  # set up logit as classifier and calibrator for a type of fusion
+    # mfw_voc_clf = lir.CalibratedScorer(SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced'),
+    #                                    calibrator)
     features_clf = lir.CalibratedScorer(clf.scorer.steps[1][1],
                                         calibrator)  # set up classifier and calibrator for a type of fusion
+    biva_cal = lir.ELUBbounder(lir.LogitCalibratorInProbabilityDomain())  # set up calibrator for a type of fusion
 
     ds = frida_data.FridaDataSource(dataset, n_frequent_words=n_frequent_words, min_num_of_words=min_num_of_words)
     X, y, conv_ids = ds.get()
@@ -342,6 +346,7 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     lrs_comb_a = []
     lrs_comb_b = []
     lrs_features = []
+    lrs_biva = []
     y_all = []
 
     for X_train, X_voc_train, y_train, X_test, X_voc_test, y_test in tqdm(
@@ -376,9 +381,12 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         scaler.fit(X_voc_train.reshape(-1, 1))
         X_voc_train_norm = scaler.transform(X_voc_train.reshape(-1, 1)).T
         X_voc_test_norm = scaler.transform(X_voc_test.reshape(-1, 1)).T
+        # X_voc_train_norm = X_voc_train
+        # X_voc_test_norm = X_voc_test
 
         # take scores from mfw scorer
         mfw_scores_train = lir.apply_scorer(clf.scorer, X_train)
+        # mfw_scores_train = lir.util.to_log_odds(mfw_scores_train)
 
         # ... and combine with voc output using logit then calibrate (for m2a)
         X_comb_train_a = np.vstack((mfw_scores_train, X_voc_train_norm)).T
@@ -405,34 +413,69 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         X_test_onevector = np.column_stack((X_test_onevector, X_voc_test_norm.T))
         lrs_features.append(features_clf.predict_lr(X_test_onevector))
 
-    lrs_mfw = np.concatenate(lrs_mfw)
-    lrs_voc = np.concatenate(lrs_voc)
-    lrs_comb_a = np.concatenate(lrs_comb_a)
-    lrs_comb_b = np.concatenate(lrs_comb_b)
-    lrs_features = np.concatenate(lrs_features)
-    y_all = np.concatenate(y_all)
+        # per class, fit bivariate normal distribution on the mfw scorers and voc output then calibrate (for m4)
+        # mfw score to log odds to match the voc scores
+        X_comb_train_m4 = np.vstack((lir.util.to_log_odds(mfw_scores_train), X_voc_train)).T
+        X_comb_test_m4 = np.vstack((lir.util.to_log_odds(mfw_scores_test), X_voc_test)).T
+
+        # parameters of bivariate normal distribution for same source
+        mean_same = np.mean(X_comb_train_m4[y_train == 1], axis=0)
+        cov_same = np.cov(X_comb_train_m4[y_train == 1], rowvar=0)
+
+        # parameters of bivariate normal distribution for diff source
+        mean_diff = np.mean(X_comb_train_m4[y_train == 0], axis=0)
+        cov_diff = np.cov(X_comb_train_m4[y_train == 0], rowvar=0)
+
+        # calculate the uncallibrated lrs for train and test
+        scores_same = scipy.stats.multivariate_normal.pdf(X_comb_train_m4, mean=mean_same, cov=cov_same)
+        scores_diff = scipy.stats.multivariate_normal.pdf(X_comb_train_m4, mean=mean_diff, cov=cov_diff)
+        uncal_lr_train = np.divide(scores_same, scores_diff)
+
+        scores_same_test = scipy.stats.multivariate_normal.pdf(X_comb_test_m4, mean=mean_same, cov=cov_same)
+        scores_diff_test = scipy.stats.multivariate_normal.pdf(X_comb_test_m4, mean=mean_diff, cov=cov_diff)
+        uncal_lr_test = np.divide(scores_same_test, scores_diff_test)
+
+        biva_cal.fit(X=np.log10(uncal_lr_train), y=y_train)
+        lrs_biva.append(biva_cal.transform(np.log10(uncal_lr_test)))
+
+    # lrs_mfw = np.concatenate(lrs_mfw)
+    # lrs_voc = np.concatenate(lrs_voc)
+    # lrs_comb_a = np.concatenate(lrs_comb_a)
+    # lrs_comb_b = np.concatenate(lrs_comb_b)
+    # lrs_features = np.concatenate(lrs_features)
+    # lrs_biva = np.concatenate(lrs_biva)
+    # y_all = np.concatenate(y_all)
 
     # calculate metrics for each method and log them
     mfw_res = calculate_metrics(lrs_mfw, y_all, full_list=all_metrics)
     voc_res = calculate_metrics(lrs_voc, y_all, full_list=all_metrics)
-    lrs_multi = np.multiply(lrs_mfw, lrs_voc)
-    lrs_multi_res = calculate_metrics(lrs_multi, y_all)
+    # lrs_multi = np.multiply(lrs_mfw, lrs_voc)
+    lrs_multi = [np.multiply(lrs_mfw[i], lrs_voc[i]) for i in range(len(lrs_mfw))]
+    lrs_multi_res = calculate_metrics(lrs_multi, y_all, full_list=all_metrics)
     comb_res_a = calculate_metrics(lrs_comb_a, y_all, full_list=all_metrics)
     comb_res_b = calculate_metrics(lrs_comb_b, y_all, full_list=all_metrics)
     feat_res = calculate_metrics(lrs_features, y_all, full_list=all_metrics)
+    biva_res = calculate_metrics(lrs_biva, y_all, full_list=all_metrics)
 
-    n_same = int(np.sum(y_all))
-    n_diff = int(y_all.size - np.sum(y_all))
-
-    LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
+    # n_same = int(np.sum(y_all))
+    # n_diff = int(y_all.size - np.sum(y_all))
+    #
+    # LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
     LOG.info(f'  mfw only: {mfw_res._fields} = {list(np.round(mfw_res, 3))}')
     LOG.info(f'  voc only: {voc_res._fields} = {list(np.round(voc_res, 3))}')
     LOG.info(f'  lrs comb by multi: {lrs_multi_res._fields} = {list(np.round(lrs_multi_res, 3))}')
     LOG.info(f'  lrs comb by logiA: {comb_res_a._fields} = {list(np.round(comb_res_a, 3))}')
     LOG.info(f'  lrs comb by logiB: {comb_res_b._fields} = {list(np.round(comb_res_b, 3))}')
     LOG.info(f'  lrs comb by featu: {feat_res._fields} = {list(np.round(feat_res, 3))}')
+    LOG.info(f'  lrs comb by bivar: {biva_res._fields} = {list(np.round(biva_res, 3))}')
 
-    return mfw_res, voc_res, lrs_multi_res, comb_res_a, comb_res_b, feat_res
+    return mfw_res, voc_res, lrs_multi_res, comb_res_a, comb_res_b, feat_res, biva_res
+
+
+def calculate_eer(lrs, y):
+    fpr, tpr, threshold = roc_curve(list(y), list(lrs), pos_label=1)
+    fnr = 1 - tpr
+    return fpr[np.nanargmin(np.absolute((fnr - fpr)))]
 
 
 def calculate_metrics(lrs, y, full_list=False):
@@ -443,32 +486,44 @@ def calculate_metrics(lrs, y, full_list=False):
     :param y: true labels
     :param full_list: if True more metrics are calculated
 
-    :return: [namedtuple] cllr, accuracy, eer, recall, precision (if full_list=True then cllr, cllr_min, cllr_cal,
-                          accuracy, eer, recall, true negative rate, precision, mean_logLR_diff, mean_logLR_same)
+    :return: [namedtuple] cllr, cllr_std, cllrmin, eer, eer_std, recall, precision (if full_list=True then
+                          cllr, cllr_std, cllr_min, cllr_cal, eer, eer_std, accuracy, recall, true negative rate,
+                          precision, mean_logLR_diff, mean_logLR_same)
     """
 
-    cllr = lir.metrics.cllr(lrs, y)
-    acc = np.mean((lrs > 1) == y)
-    recall = np.mean(lrs[y == 1] > 1)  # true positive rate
-    precision = np.mean(y[lrs > 1] == 1)
+    cllrs = np.array([lir.metrics.cllr(lrs[i], y[i]) for i in range(len(lrs))])
+    cllr = np.mean(cllrs)
+    cllr_std = np.std(cllrs)
 
-    fpr, tpr, threshold = roc_curve(list(y), list(lrs), pos_label=1)
-    fnr = 1 - tpr
-    eer = fpr[np.nanargmin(np.absolute((fnr - fpr)))]
-    auc = roc_auc_score(list(y), list(lrs))
+    cllrmin = np.mean(np.array([lir.metrics.cllr_min(lrs[i], y[i]) for i in range(len(lrs))]))
+
+    eers = np.array([calculate_eer(lrs[i], y[i]) for i in range(len(lrs))])
+    eer = np.mean(eers)
+    eer_std = np.std(eers)
+
+    recall = np.mean(np.array([np.mean(lrs[i][y[i] == 1] > 1) for i in range(len(lrs))]))  # true positive rate
+    precision = np.mean(np.array([np.mean(y[i][lrs[i] > 1] == 1) for i in range(len(lrs))]))
 
     if full_list:
-        cllrmin = lir.metrics.cllr_min(lrs, y)
         cllrcal = cllr - cllrmin
-        tnr = np.mean(lrs[y == 0] < 1)  # true negative rate
-        mean_logLR_diff = np.mean(np.log(lrs[y == 0]))
-        mean_logLR_same = np.mean(np.log(lrs[y == 1]))
-        Metrics = collections.namedtuple('Metrics', ['cllr', 'cllrmin', 'cllrcal', 'accuracy', 'eer', 'auc', 'recall',
-                                                     'tnr', 'precision', 'mean_logLR_diff', 'mean_logLR_same'])
-        res = Metrics(cllr, cllrmin, cllrcal, acc, eer, auc, recall, tnr, precision, mean_logLR_diff, mean_logLR_same)
+
+        acc = np.mean(np.array([np.mean((lrs[i] > 1) == y[i]) for i in range(len(lrs))]))  # accuracy
+
+        auc = np.mean(np.array([roc_auc_score(list(y[i]), list(lrs[i])) for i in range(len(lrs))]))
+
+        tnr = np.mean(np.array([np.mean(lrs[i][y[i] == 0] < 1) for i in range(len(lrs))]))  # true negative rate
+        mean_logLR_diff = np.mean(np.array([np.mean(np.log(lrs[i][y[i] == 0])) for i in range(len(lrs))]))
+        mean_logLR_same = np.mean(np.array([np.mean(np.log(lrs[i][y[i] == 1])) for i in range(len(lrs))]))
+
+        Metrics = collections.namedtuple('Metrics', ['cllr', 'cllr_std', 'cllrmin', 'cllrcal', 'eer', 'eer_std',
+                                                     'accuracy', 'auc', 'recall', 'tnr', 'precision',
+                                                     'mean_logLR_diff', 'mean_logLR_same'])
+        res = Metrics(cllr, cllr_std, cllrmin, cllrcal, eer, eer_std, acc, auc, recall, tnr, precision,
+                      mean_logLR_diff, mean_logLR_same)
     else:
-        Metrics = collections.namedtuple('Metrics', ['cllr', 'accuracy', 'eer', 'auc', 'recall', 'precision'])
-        res = Metrics(cllr, acc, eer, auc, recall, precision)
+        Metrics = collections.namedtuple('Metrics', ['cllr', 'cllr_std', 'cllrmin', 'eer', 'eer_std', 'recall',
+                                                     'precision'])
+        res = Metrics(cllr, cllr_std, cllrmin, eer, eer_std, recall, precision)
 
     return res
 
@@ -488,8 +543,8 @@ def aggregate_results(out_dir, results):
         print(f'lrs comb by multi: {result[2]._fields} = {list(np.round(result[2], 3))}--{desc}')
         print(f'lrs comb by logiA: {result[3]._fields} = {list(np.round(result[3], 3))}--{desc}')
         print(f'lrs comb by logiB: {result[4]._fields} = {list(np.round(result[4], 3))}--{desc}')
-        if len(result) == 6:
-            print(f'lrs comb by featu: {result[5]._fields} = {list(np.round(result[5], 3))}--{desc}')
+        print(f'lrs comb by featu: {result[5]._fields} = {list(np.round(result[5], 3))}--{desc}')
+        print(f'lrs comb by bivar: {result[6]._fields} = {list(np.round(result[6], 3))}--{desc}')
 
 
 def run(dataset, voc_data, resultdir):
@@ -553,7 +608,7 @@ def run(dataset, voc_data, resultdir):
 
     exp.parameter('dataset', dataset)
     exp.parameter('voc_data', voc_data)
-    exp.parameter('device', 'headset')  # options: telephone, headset, SM58close, AKGC400BL, SM58far
+    exp.parameter('device', 'telephone')  # options: telephone, headset, SM58close, AKGC400BL, SM58far
 
     exp.parameter('min_num_of_words', 50)
 
@@ -566,11 +621,11 @@ def run(dataset, voc_data, resultdir):
     exp.parameter('preprocessor', prep_gauss)
 
     exp.parameter('classifier', ('bray_logit', logit_br))
-    exp.addSearch('classifier',
-                  [('man_logit', logit), ('bray_svm', svm_br), ('bray_logit', logit_br)],
+    exp.addSearch('classifier', [('br_mlp', br_mlp), ('bray_logit', logit_br)],
                   include_default=False)
 
-    exp.parameter('calibrator', lir.ScalingCalibrator(lir.LogitCalibrator()))
+    exp.parameter('calibrator', lir.ELUBbounder(lir.LogitCalibrator()))
+    exp.parameter('all_metrics', False)
     exp.parameter('repeats', 10)
 
     try:
