@@ -254,14 +254,19 @@ def get_pairs(X, y, conv_ids, voc_conv_pairs, voc_scores, sample_size):
                                                         different_source_limit=int(sample_size))
     X_pairs, y_pairs = pairs_transformation.transform(X, y)
     pairing = pairs_transformation.pairing  # indices of pairs based on the transcriptions
-    conv_pairs = np.apply_along_axis(lambda a: np.array([conv_ids[a[0]], conv_ids[a[1]]]), 1,
+    conv_pairs = np.apply_along_axis(lambda a: np.sort(np.array([conv_ids[a[0]], conv_ids[a[1]]])), 1,
                                      pairing)  # from indices to the actual pairs
+    conv_pairs = np.apply_along_axis(lambda a: str(a[0]+a[1]), 1, conv_pairs)
 
-    # search the pair based on transcription within the conv_ids (order of the speaker ids is not crucial)
-    # and return the vocalise score if no score exists set value to NaN
-    voc_scores_subset = np.apply_along_axis(
-        lambda a: voc_scores[np.where(voc_conv_pairs == set(a))[0]][0][0]
-        if len(np.where(voc_conv_pairs == set(a))[0]) == 1 else np.NaN, 1, conv_pairs)
+    # alignment of voc score to pairs for mfw
+    voc_dict = dict({})
+    for A, B in zip(voc_conv_pairs, voc_scores):
+        voc_dict[str(A)] = B.item()
+
+    voc_scores_subset = []
+    for a in conv_pairs:
+        voc_scores_subset.append(voc_dict.get(str(a), np.NaN))
+    voc_scores_subset = np.array(voc_scores_subset)
 
     # to be able to combine the two systems we work only with the data that overlap
     voc_score_clean = voc_scores_subset[~np.isnan(voc_scores_subset)]
@@ -319,10 +324,10 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
 
     clf = lir.CalibratedScorer(classifier, calibrator)  # set up classifier and calibrator for authorship technique
     voc_cal = lir.ELUBbounder(lir.LogitCalibratorInProbabilityDomain())  # set up calibrator for vocalise output
-    mfw_voc_clf = lir.CalibratedScorer(LogisticRegression(class_weight='balanced'),
-                                       calibrator)  # set up logit as classifier and calibrator for a type of fusion
-    # mfw_voc_clf = lir.CalibratedScorer(SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced'),
-    #                                    calibrator)
+    # mfw_voc_clf = lir.CalibratedScorer(LogisticRegression(class_weight='balanced'),
+    #                                    calibrator)  # set up logit as classifier and calibrator for a type of fusion
+    mfw_voc_clf = lir.CalibratedScorer(SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced'),
+                                       calibrator)
     features_clf = lir.CalibratedScorer(clf.scorer.steps[1][1],
                                         calibrator)  # set up classifier and calibrator for a type of fusion
     biva_cal = lir.ELUBbounder(lir.LogitCalibratorInProbabilityDomain())  # set up calibrator for a type of fusion
@@ -381,12 +386,9 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         scaler.fit(X_voc_train.reshape(-1, 1))
         X_voc_train_norm = scaler.transform(X_voc_train.reshape(-1, 1)).T
         X_voc_test_norm = scaler.transform(X_voc_test.reshape(-1, 1)).T
-        # X_voc_train_norm = X_voc_train
-        # X_voc_test_norm = X_voc_test
 
         # take scores from mfw scorer
         mfw_scores_train = lir.apply_scorer(clf.scorer, X_train)
-        # mfw_scores_train = lir.util.to_log_odds(mfw_scores_train)
 
         # ... and combine with voc output using logit then calibrate (for m2a)
         X_comb_train_a = np.vstack((mfw_scores_train, X_voc_train_norm)).T
@@ -438,18 +440,9 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         biva_cal.fit(X=np.log10(uncal_lr_train), y=y_train)
         lrs_biva.append(biva_cal.transform(np.log10(uncal_lr_test)))
 
-    # lrs_mfw = np.concatenate(lrs_mfw)
-    # lrs_voc = np.concatenate(lrs_voc)
-    # lrs_comb_a = np.concatenate(lrs_comb_a)
-    # lrs_comb_b = np.concatenate(lrs_comb_b)
-    # lrs_features = np.concatenate(lrs_features)
-    # lrs_biva = np.concatenate(lrs_biva)
-    # y_all = np.concatenate(y_all)
-
     # calculate metrics for each method and log them
     mfw_res = calculate_metrics(lrs_mfw, y_all, full_list=all_metrics)
     voc_res = calculate_metrics(lrs_voc, y_all, full_list=all_metrics)
-    # lrs_multi = np.multiply(lrs_mfw, lrs_voc)
     lrs_multi = [np.multiply(lrs_mfw[i], lrs_voc[i]) for i in range(len(lrs_mfw))]
     lrs_multi_res = calculate_metrics(lrs_multi, y_all, full_list=all_metrics)
     comb_res_a = calculate_metrics(lrs_comb_a, y_all, full_list=all_metrics)
@@ -457,10 +450,6 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     feat_res = calculate_metrics(lrs_features, y_all, full_list=all_metrics)
     biva_res = calculate_metrics(lrs_biva, y_all, full_list=all_metrics)
 
-    # n_same = int(np.sum(y_all))
-    # n_diff = int(y_all.size - np.sum(y_all))
-    #
-    # LOG.info(f'  total counts by class (sum of all repeats): diff={n_diff}; same={n_same}')
     LOG.info(f'  mfw only: {mfw_res._fields} = {list(np.round(mfw_res, 3))}')
     LOG.info(f'  voc only: {voc_res._fields} = {list(np.round(voc_res, 3))}')
     LOG.info(f'  lrs comb by multi: {lrs_multi_res._fields} = {list(np.round(lrs_multi_res, 3))}')
@@ -626,7 +615,7 @@ def run(dataset, voc_data, resultdir):
 
     exp.parameter('calibrator', lir.ELUBbounder(lir.LogitCalibrator()))
     exp.parameter('all_metrics', False)
-    exp.parameter('repeats', 10)
+    exp.parameter('repeats', 1)
 
     try:
         exp.runDefaults()

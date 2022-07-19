@@ -34,7 +34,8 @@ class VocalizeDataSource:
             df.to_json(vocalise_path, orient="index")
 
         voc_pairs = df[['SP_1', 'SP_2']].to_numpy()
-        voc_pairs_set = np.apply_along_axis(set, 1, voc_pairs)
+        # voc_pairs_set = np.apply_along_axis(set, 1, voc_pairs)
+        voc_pairs_set = np.apply_along_axis(lambda a: str(a[0] + a[1]), 1, voc_pairs)
         voc_score = df[['value']].to_numpy()
 
         return voc_pairs_set, voc_score
