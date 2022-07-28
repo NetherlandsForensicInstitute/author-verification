@@ -251,7 +251,8 @@ def get_pairs(X, y, conv_ids, voc_conv_pairs, voc_scores, sample_size):
     """
     # pair instances: same source and different source
     pairs_transformation = transformers.InstancePairing(same_source_limit=int(sample_size),
-                                                        different_source_limit=int(sample_size))
+                                                        different_source_limit=int(sample_size),
+                                                        seed=15)
     X_pairs, y_pairs = pairs_transformation.transform(X, y)
     pairing = pairs_transformation.pairing  # indices of pairs based on the transcriptions
     conv_pairs = np.apply_along_axis(lambda a: np.sort(np.array([conv_ids[a[0]], conv_ids[a[1]]])), 1,
@@ -358,13 +359,13 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
             get_batch_simple(X, y, conv_ids, voc_conv_pairs, voc_scores, repeats,
                              max_n_of_pairs_per_class, preprocessor)):
 
-        # we consider four ways to combine the mfw method with the voc output
+        # the following ways are considered for combining the mfw method with the voc output
         # 1. assume that mfw and voc LR are independent and multiply them (m1)
-        # 2a. apply logit using as input the mfc and the voc score, then calibrate the resulted score (m2a)
-        # 2b. apply logit using as input the mfc score, the voc score, and their product, then calibrate
+        # 2a. apply svm using as input the mfc and the voc score, then calibrate the resulted score (m2a)
+        # 2b. apply svm using as input the mfc score, the voc score, and their product, then calibrate
         #     the resulted score (m2a)
         # 3. use the voc score as additional feature to the mfw input vector (m3)
-        # NOTE: m3 can be used only if the scorer is a classification alg, otherwise m3 = m2a with scorer = logit
+        # 4. per class, fit bivariate normal distribution on the mfw scorers and voc output (m4)
 
         # calculate LRs for vocalize output (for m1)
         # remember: vocalize outputs uncalibrated LRs
@@ -555,6 +556,7 @@ def run(dataset, voc_data, resultdir):
     ])
 
     prep_gauss = sklearn.pipeline.Pipeline([
+        # ('scale:standard', sklearn.preprocessing.StandardScaler()),
         ('pop:gauss', GaussianCdfTransformer()),  # cumulative density function for each feature
         # ('pop:gauss', sklearn.preprocessing.QuantileTransformer()),  # cumulative density function for each feature
     ])
@@ -615,7 +617,7 @@ def run(dataset, voc_data, resultdir):
 
     exp.parameter('calibrator', lir.ELUBbounder(lir.LogitCalibrator()))
     exp.parameter('all_metrics', False)
-    exp.parameter('repeats', 1)
+    exp.parameter('repeats', 100)
 
     try:
         exp.runDefaults()
