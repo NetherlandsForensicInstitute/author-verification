@@ -79,7 +79,7 @@ class KdeCdfTransformer(sklearn.base.TransformerMixin):
 
             kernel = sklearn.neighbors.KernelDensity(kernel='gaussian', bandwidth=.1).fit(feature_values.reshape(-1, 1))
             precomputed_values = np.arange(self._resolution + 1).reshape(-1, 1) / self._resolution * (
-                        upper - lower) + lower
+                    upper - lower) + lower
             density = np.exp(kernel.score_samples(precomputed_values))
             cumulative_density = np.cumsum(density)
             cumulative_density = cumulative_density / cumulative_density[-1]
@@ -267,25 +267,48 @@ class makeplots:
         # lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
 
 
-def get_pairs(X, y, authors_subset, sample_size):
-    X_subset = X[np.isin(y, authors_subset), :]
-    y_subset = y[np.isin(y, authors_subset)]
-
+def get_pairs(X, y, conv_ids, row_ids, col_ids, sv_scores, sample_size):
     # pair instances: same source and different source
-    return transformers.InstancePairing(same_source_limit=sample_size // 2,
-                                        different_source_limit=sample_size // 2).transform(X_subset, y_subset)
+    pairs_transformation = transformers.InstancePairing(same_source_limit=int(sample_size),
+                                                        different_source_limit=int(sample_size),
+                                                        seed=15)
+    X_pairs, y_pairs = pairs_transformation.transform(X, y)
+    pairing = pairs_transformation.pairing  # indices of pairs based on the transcriptions
+    conv_pairs = np.apply_along_axis(lambda a: np.array([conv_ids[a[0]], conv_ids[a[1]]]), 1,
+                                     pairing)  # from indices to the actual pairs
+
+    # alignment of sv_scores and feature-pairs for mfw
+    vs_scores_subset = np.apply_along_axis(lambda a: sv_scores[np.where(row_ids == a[0]),
+                                                               np.where(col_ids == a[1])].item(), 1, conv_pairs)
+
+    return X_pairs, vs_scores_subset, y_pairs
 
 
-def get_batch_simple(X, y, repeats, max_n_of_pairs_per_class):
+def get_batch_simple(X, y, conv_ids, row_ids, col_ids, sv_scores, repeats, max_n_of_pairs_per_class, preprocessor):
     for i in range(repeats):
         authors = np.unique(y)
         authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
 
-        sample_size = 2 * max_n_of_pairs_per_class
-        X_train, y_train = get_pairs(X, y, authors_train, sample_size)
-        X_test, y_test = get_pairs(X, y, authors_test, 4000)
+        # prep data for train
+        X_subset_for_train = X[np.isin(y, authors_train), :]
+        X_subset_for_train = preprocessor.fit_transform(X_subset_for_train)
+        y_subset_for_train = y[np.isin(y, authors_train)]
+        conv_ids_subset_for_train = conv_ids[np.isin(y, authors_train)]
 
-        yield X_train, y_train, X_test, y_test
+        # prep data for test
+        X_subset_for_test = X[np.isin(y, authors_test), :]
+        X_subset_for_test = preprocessor.transform(X_subset_for_test)
+        y_subset_for_test = y[np.isin(y, authors_test)]
+        conv_ids_subset_for_test = conv_ids[np.isin(y, authors_test)]
+
+        # max_n_of_pairs_per_class affects only the train set, the size of the test set is fixed (for fair comparisons
+        # of runs with different max_n_of_pairs_per_class).
+        X_train, X_sv_train, y_train = get_pairs(X_subset_for_train, y_subset_for_train, conv_ids_subset_for_train,
+                                                 row_ids, col_ids, sv_scores, max_n_of_pairs_per_class)
+        X_test, X_sv_test, y_test = get_pairs(X_subset_for_test, y_subset_for_test, conv_ids_subset_for_test,
+                                              row_ids, col_ids, sv_scores, 2000)
+
+        yield X_train, X_sv_train, y_train, X_test, X_sv_test, y_test
 
 
 def evaluate_samesource(desc, dataset, sv_scores, n_frequent_words, max_n_of_pairs_per_class, preprocessor, classifier,
@@ -306,7 +329,14 @@ def evaluate_samesource(desc, dataset, sv_scores, n_frequent_words, max_n_of_pai
     :param min_words_in_conv: int: min words in a file to be processed
     :return: cllr, cllr_std, cllrmin, eer, eer_std, recall, precision
     """
-    clf = lir.CalibratedScorer(classifier, calibrator)
+
+    clf = lir.CalibratedScorer(classifier, calibrator)  # set up classifier and calibrator for authorship technique
+    sv_cal = lir.ELUBbounder(lir.LogitCalibratorInProbabilityDomain())  # set up calibrator for acoustic output
+    mfw_sv_clf = lir.CalibratedScorer(LogisticRegression(class_weight='balanced'),
+                                       calibrator)  # set up logit as classifier and calibrator for a type of fusion
+    features_clf = lir.CalibratedScorer(clf.scorer.steps[1][1],
+                                        calibrator)  # set up classifier and calibrator for a type of fusion
+    biva_cal = lir.ELUBbounder(lir.LogitCalibratorInProbabilityDomain())  # set up calibrator for a type of fusion
 
     if 'asr_output' in dataset:
         ds = asr_fisher_data.ASRFisherDataSource(dataset, extra_file, n_frequent_words=n_frequent_words,
@@ -317,11 +347,11 @@ def evaluate_samesource(desc, dataset, sv_scores, n_frequent_words, max_n_of_pai
     else:
         raise ValueError('illegal input for dataset')
 
-    X, y = ds.get()
+    X, y, conv_ids = ds.get()
     assert X.shape[0] > 0
 
     sv_ds = sv_fisher_data.SVscoreFisherDataSource(sv_scores, extra_file)
-    pairs_scores_dict = sv_ds.get()
+    row_ids, col_ids, sv_scores = sv_ds.get()
 
     desc_pre = '; '.join(name for name, tr in preprocessor.steps)
     desc_clf = '; '.join(name for name, tr in clf.scorer.steps)
@@ -330,14 +360,20 @@ def evaluate_samesource(desc, dataset, sv_scores, n_frequent_words, max_n_of_pai
     LOG.info(f'{desc}: number of speakers: {np.unique(y).size}')
     LOG.info(f'{desc}: number of instances: {y.size}')
 
-    X = preprocessor.fit_transform(X)
-
-    lrs = []
+    lrs_mfw = []
+    lrs_sv = []
+    lrs_comb_a = []
+    lrs_comb_b = []
+    lrs_features = []
+    lrs_biva = []
     y_all = []
-    for X_train, y_train, X_test, y_test in tqdm(get_batch_simple(X, y, repeats, max_n_of_pairs_per_class)):
+
+    for X_train, X_sv_train, y_train, X_test, X_sv_test, y_test in tqdm(
+            get_batch_simple(X, y, conv_ids, row_ids, col_ids, sv_scores, repeats, max_n_of_pairs_per_class,
+                             preprocessor)):
         # fit a classifier and calculate LRs
         clf.fit(X_train, y_train)
-        lrs.append(clf.predict_lr(X_test))
+        lrs_mfw.append(clf.predict_lr(X_test))
         y_all.append(y_test)
 
         # n_same_train = int(np.sum(y_train))
@@ -349,28 +385,27 @@ def evaluate_samesource(desc, dataset, sv_scores, n_frequent_words, max_n_of_pai
         # LOG.info(f'  counts by class (train): diff={n_diff_train}; same={n_same_train}')
         # LOG.info(f'  counts by class (test): diff={n_diff_test}; same={n_same_test}')
 
-    lrs = np.concatenate(lrs)
+    lrs_mfw = np.concatenate(lrs_mfw)
     y_all = np.concatenate(y_all)
 
     # if plot is not None:
     #     plot(lrs, y_all, title=title, shortname=desc)
 
-    cllr = lir.metrics.cllr(lrs, y_all)
-    acc = np.mean((lrs > 1) == y_all)
-    recall = np.mean(lrs[y_all == 1] > 1) # true positive rate
-    precision = np.mean(y_all[lrs > 1] == 1)
+    cllr = lir.metrics.cllr(lrs_mfw, y_all)
+    acc = np.mean((lrs_mfw > 1) == y_all)
+    recall = np.mean(lrs_mfw[y_all == 1] > 1)  # true positive rate
+    precision = np.mean(y_all[lrs_mfw > 1] == 1)
 
-    fpr, tpr, threshold = roc_curve(list(y_all), list(lrs), pos_label=1)
+    fpr, tpr, threshold = roc_curve(list(y_all), list(lrs_mfw), pos_label=1)
     fnr = 1 - tpr
     eer = fpr[np.nanargmin(np.absolute((fnr - fpr)))]
 
     Metrics = collections.namedtuple('Metrics', ['cllr', 'accuracy', 'eer', 'recall', 'precision'])
 
-    return Metrics(cllr, acc, eer, recall, precision), lrs, y_all
+    return Metrics(cllr, acc, eer, recall, precision), lrs_mfw, y_all
 
 
 def aggregate_results(out_dir, results):
-
     for params, result in results:
         desc = ', '.join(f'{name}={value}' for name, value in params)
         print(f'{desc}: {result[0]._fields} = {list(np.round(result[0], 3))}')
