@@ -1,5 +1,13 @@
 \non target transcriptions
+<<<<<<< HEAD
 roxsd_after_cleaning.json
 roxsd_for_streamlit.txt
 roxsd_for_exploration.json
 ROXSD_v1.0.1-metadata_v3.0.1.xlsx
+=======
+\asr_roxsdv1_2
+ROXSD_v1.0.1-metadata_v3.0.1.xlsx
+roxsd_for_streamlit.txt
+roxsd_for_exploration.json
+roxsd_after_cleaning.json
+>>>>>>> author_and_voc

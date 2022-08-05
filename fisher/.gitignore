@@ -1,3 +1,13 @@
 \fisher_trans
+<<<<<<< HEAD
 data_for_streamlit.txt
 fisher_for_exploration.json
+=======
+\asr_output_with_times
+\acoustic_scores
+
+fisher_selected_final_hyp.txt
+fisher_selected_final_ref.txt
+data_for_streamlit.txt
+fisher_for_exploration.json
+>>>>>>> author_and_voc
