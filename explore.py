@@ -11,10 +11,11 @@ import seaborn as sns
 from sklearn.metrics import roc_curve, confusion_matrix
 
 main_path = 'frida/predictions'
-runs = ['prep_gauss_4000']
-specific_run = runs[0]
-prediction_file = 'predictions_per_repeat.json'  # 20211228 the file is a dummy
-# prediction_file = 'predictions_per_repeat_' + specific_run + '.json'
+
+runs = ['exp1', 'exp2', 'exp3']
+specific_run = runs[1]
+# prediction_file = 'predictions_per_repeat.json'
+prediction_file = 'predictions_per_repeat_' + specific_run + '.json'
 param_file = 'param_' + specific_run + '.json'
 
 
@@ -40,12 +41,18 @@ def most_frequent(df):
 def eer(lrs, y):
     fpr, tpr, threshold = roc_curve(list(y), list(lrs), pos_label=1)
     fnr = 1 - tpr
-    return fpr[np.nanargmin(np.absolute((fnr - fpr)))]
+    # return fpr[np.nanargmin(np.absolute((fnr - fpr)))]
+    try:
+        return fpr[np.nanargmin(np.absolute((fnr - fpr)))]
+    except ValueError:
+        return np.nan
 
 
-# accuracy
-def accuracy(lrs, y):
-    return np.mean((lrs > 1) == y)
+# cllr_min
+def cllr_min(lrs, y):
+    lrs = np.array(lrs)
+    y = np.array(y)
+    return lir.metrics.cllr_min(lrs, y)
 
 
 # cllr
@@ -89,37 +96,65 @@ def lr_histogram(lrs, y, bins=20, title=''):
     return fig
 
 
-def accuracies_per_category(cols_to_group, lrs_col, y, df):
+def metrics_per_category(cols_to_group, lrs_col, y, df):
     """
+    parameters
     :param cols_to_group = list of column names
     :param lrs_col = column name of the lrs
     :param y = column name of the ground truth (binary 0/1)
     :param df = dataframe with the mentioned columns
 
-    it returns a df where each comb of values in cols_to_group the counts and the accuracies for class 0 and 1
+    it returns a df where each comb of values in cols_to_group the counts and the values of diff metrics
     """
     # counts
-    grouped_df = df.groupby(cols_to_group)[y].agg([lambda x: sum(x == 0), lambda x: sum(x)]).reset_index()
-    grouped_df.rename(columns={'<lambda_0>': "total_0", '<lambda_1>': "total_1"}, inplace=True)
+    cols = ['repeat'] + cols_to_group
+    grouped_df = df.groupby(cols)[y].agg([lambda x: sum(x == 0), lambda x: sum(x)]).reset_index()
+    grouped_df.rename(columns={'<lambda_0>': "total_ds", '<lambda_1>': "total_ss"}, inplace=True)
 
-    # accuracies
-    df['pred'] = pd.Series(np.where((df[lrs_col] > 1) & (df[y] == 1), 1, np.where((df[lrs_col] <= 1) &
-                                                                                  (df[y] == 0), 0, 2)))
-    grouped_pred = df.groupby(cols_to_group)['pred'].agg([lambda x: sum(x < 2), lambda x: sum(x == 0),
-                                                          lambda x: sum(x == 1)]).reset_index()
-    new_col_name = lrs_col.replace('lrs_', '') + '_acc'
-    new_col_name_0 = lrs_col.replace('lrs_', '') + '_acc_0'
-    new_col_name_1 = lrs_col.replace('lrs_', '') + '_acc_1'
-    grouped_pred.rename(columns={'<lambda_0>': new_col_name, '<lambda_1>': new_col_name_0,
-                                 '<lambda_2>': new_col_name_1}, inplace=True)
+    cllr_df = predictions.groupby(cols)[['y', lrs_col]].apply(
+        lambda x: cllr(x[lrs_col], x['y'])).to_frame().reset_index()
+    cllr_df.rename(columns={0: "cllr"}, inplace=True)
 
-    grouped_df = grouped_df.merge(grouped_pred, on=cols_to_group)
-    grouped_df[new_col_name] = round(grouped_df[new_col_name] / (grouped_df['total_0'] + grouped_df['total_1']), 4)
-    grouped_df[new_col_name_0] = round(grouped_df[new_col_name_0] / grouped_df['total_0'], 4)
-    grouped_df[new_col_name_1] = round(grouped_df[new_col_name_1] / grouped_df['total_1'], 4)
+    eer_df = predictions.groupby(cols)[['y', lrs_col]].apply(lambda x: eer(x[lrs_col], x['y'])).to_frame().reset_index()
+    eer_df.rename(columns={0: "eer"}, inplace=True)
 
-    return grouped_df.sort_values([new_col_name, new_col_name_1, new_col_name_0])
+    grouped_all = grouped_df.merge(cllr_df, on=cols)
+    grouped_all = grouped_all.merge(eer_df, on=cols)
+    grouped_all = grouped_all.groupby(cols_to_group).agg('mean').reset_index()
 
+    grouped_all['total_ds'] = round(grouped_all['total_ds'], 1)
+    grouped_all['total_ss'] = round(grouped_all['total_ss'], 1)
+    grouped_all['cllr'] = round(grouped_all['cllr'], 3)
+    grouped_all['eer'] = round(grouped_all['eer'], 3)
+
+    return grouped_all
+
+
+def metrics_for_plotting(cols_to_group, df):
+    """
+    todo: update
+    """
+    # counts
+    cols = ['repeat'] + cols_to_group
+    final_df = pd.DataFrame()
+    for col in ['lrs_voc', 'lrs_multi', 'lrs_comb_a', 'lrs_comb_b', 'lrs_feat', 'lrs_biva']:
+        cllr_df = df.groupby(cols)[['y', col]].apply(lambda x: cllr(x[col], x['y'])).to_frame().reset_index()
+        cllr_df.rename(columns={0: "value"}, inplace=True)
+        cllr_df = cllr_df.groupby(cols_to_group).agg('mean').reset_index()
+        cllr_df['metric'] = 'cllr'
+        cllr_df['method'] = col.replace('lrs_', '')
+        cllr_df = cllr_df[['method'] + cols_to_group + ['metric', 'value']]
+        final_df = final_df.append(cllr_df, ignore_index=True)
+
+        eer_df = df.groupby(cols)[['y', col]].apply(lambda x: eer(x[col], x['y'])).to_frame().reset_index()
+        eer_df.rename(columns={0: "value"}, inplace=True)
+        eer_df = eer_df.groupby(cols_to_group).agg('mean').reset_index()
+        eer_df['metric'] = 'eer'
+        eer_df['method'] = col.replace('lrs_', '')
+        eer_df = eer_df[['method'] + cols_to_group + ['metric', 'value']]
+        final_df = final_df.append(eer_df, ignore_index=True)
+
+    return final_df
 
 if __name__ == '__main__':
 
@@ -131,15 +166,19 @@ if __name__ == '__main__':
     words.sort_values(by='freq', ascending=False, inplace=True)
     top_200 = words.index[:200].tolist()
 
-    wc = WordCloud(width=2500, height=400)
-    wc.generate_from_frequencies(frequencies=words.to_dict()['freq'])
+    # wc = WordCloud(width=2500, height=400)
+    # wc.generate_from_frequencies(frequencies=words.to_dict()['freq'])
 
-    num_mfw, perc_mfw = most_frequent(words)
+    # num_mfw, perc_mfw = most_frequent(words)
 
     # length of the conversations (excl. words that are non-existing, incomplete, distorted or unclear)
     conv_len = pd.read_json(f'{main_path}/conversation_length.json', orient="index")
     conv_len.reset_index(inplace=True)
     conv_len.rename(columns={'index': 'conv_id', 0: "num_words"}, inplace=True)
+    bins_words = [24, 400, 600, 1286]
+    names_words = ['n<=400', '400<n<=600', 'n>600']
+    conv_len['num_words_range'] = pd.cut(conv_len['num_words'], bins_words, labels=names_words).astype('O')
+
     spks = list(set([conv_id[:(len(conv_id) - 2)] for conv_id in conv_len.conv_id]))
 
     # words and their freq per conversation for the top 200 words based on the total
@@ -164,27 +203,28 @@ if __name__ == '__main__':
     names = ['18-20', '21-30', '31-55']
     spk_metadata['age_range'] = pd.cut(spk_metadata['age'], bins, labels=names).astype('O')
 
-    spk_metadata['birth_place_father'] = spk_metadata['birth_place_father']. \
-        str.replace('[mM]oroc[coan]*', 'Morocco'). \
-        str.replace('Turk[eyish]*', 'Turkey'). \
-        str.replace('Neatherlands', 'Netherlands', regex=False). \
-        str.replace('Holland', 'Netherlands', regex=False). \
-        str.replace('Dutch', 'Netherlands', regex=False). \
-        str.replace('Amsterdam', 'Netherlands', regex=False)
-    spk_metadata['birth_place_mother'] = spk_metadata['birth_place_mother']. \
-        str.replace('[mM]oroc[coan]*', 'Morocco'). \
-        str.replace('Tu[r]{0,1}k[eyish]*', 'Turkey'). \
-        str.replace('Neatherlands', 'Netherlands', regex=False). \
-        str.replace('Hol[la][la]n[d]{0,1}', 'Netherlands'). \
-        str.replace('Dutch', 'Netherlands', regex=False)
+    spk_metadata.drop(['age', 'birth_place_father', 'birth_place_mother'], axis=1, inplace=True)
+    # spk_metadata['birth_place_father'] = spk_metadata['birth_place_father']. \
+    #     str.replace('[mM]oroc[coan]*', 'Morocco'). \
+    #     str.replace('Turk[eyish]*', 'Turkey'). \
+    #     str.replace('Neatherlands', 'Netherlands', regex=False). \
+    #     str.replace('Holland', 'Netherlands', regex=False). \
+    #     str.replace('Dutch', 'Netherlands', regex=False). \
+    #     str.replace('Amsterdam', 'Netherlands', regex=False)
+    # spk_metadata['birth_place_mother'] = spk_metadata['birth_place_mother']. \
+    #     str.replace('[mM]oroc[coan]*', 'Morocco'). \
+    #     str.replace('Tu[r]{0,1}k[eyish]*', 'Turkey'). \
+    #     str.replace('Neatherlands', 'Netherlands', regex=False). \
+    #     str.replace('Hol[la][la]n[d]{0,1}', 'Netherlands'). \
+    #     str.replace('Dutch', 'Netherlands', regex=False)
     spk_metadata['second_language'] = spk_metadata['second_language']. \
         str.replace('[mM]o[rc]oc[coan]*', 'Moroccan'). \
         str.replace('Tu[r]{0,1}k[eyish]*', 'Turkish'). \
         str.replace('Enligsh', 'English', regex=False)
 
-    # create conversation metadata
-    conv_metadata = pd.DataFrame({'session': [2, 4, 6, 8], 'location': ['indoor', 'indoor', 'outdoor', 'outdoor'],
-                                  'environment': ['quiet', 'noisy', 'quiet', 'noisy']})
+    # # create conversation metadata
+    # conv_metadata = pd.DataFrame({'session': [2, 4, 6, 8], 'location': ['indoor', 'indoor', 'outdoor', 'outdoor'],
+    #                               'environment': ['quiet', 'noisy', 'quiet', 'noisy']})
 
     # parameters
     with open(f'{main_path}/{param_file}') as p:
@@ -198,49 +238,47 @@ if __name__ == '__main__':
     num_pairs = pd.DataFrame()
 
     for key in per_repeat.keys():
-        train_same, train_diff = sum(np.array(per_repeat[key]['train']) == 1), sum(
-            np.array(per_repeat[key]['train']) == 0)
+        train_same, train_diff = sum(np.array(per_repeat[key]['train']) == 1), \
+                                 sum(np.array(per_repeat[key]['train']) == 0)
         test_same, test_diff = sum(np.array(per_repeat[key]['y']) == 1), sum(np.array(per_repeat[key]['y']) == 0)
         temp_num_df = pd.DataFrame({'repeat': key, 'train_same': train_same, 'train_diff': train_diff,
                                     'train_all': len(per_repeat[key]['train']), 'test_same': test_same,
                                     'test_diff': test_diff, 'test_all': len(per_repeat[key]['y'])}, index=[0])
 
-        conv_A = [pair[0] for pair in per_repeat[key]['pairs']]
+        # pairs are in the form of SPXXXXXSPXXXXX
+        conv_A = ['SP' + pair.split('SP')[1] for pair in per_repeat[key]['pairs']]
         spk_A = [conv_id[:-2] for conv_id in conv_A]
-        conv_B = [pair[1] for pair in per_repeat[key]['pairs']]
+        conv_B = ['SP' + pair.split('SP')[2] for pair in per_repeat[key]['pairs']]
         spk_B = [conv_id[:-2] for conv_id in conv_B]
         lrs_multi = [a * b for a, b in zip(per_repeat[key]['lrs_mfw'], per_repeat[key]['lrs_voc'])]
 
         temp_df = pd.DataFrame({'repeat': key, 'spk_A': spk_A, 'spk_B': spk_B, 'conv_A': conv_A, 'conv_B': conv_B,
                                 'y': per_repeat[key]['y'], 'lrs_mfw': per_repeat[key]['lrs_mfw'],
                                 'lrs_voc': per_repeat[key]['lrs_voc'], 'lrs_multi': lrs_multi,
-                                'lrs_comb_a': per_repeat[key]['lrs_comb_a'], 'lrs_comb_b': per_repeat[key]['lrs_comb_b'],
-                                'lrs_feat': per_repeat[key]['lrs_feat']})
+                                'lrs_comb_a': per_repeat[key]['lrs_comb_a'],
+                                'lrs_comb_b': per_repeat[key]['lrs_comb_b'],
+                                'lrs_feat': per_repeat[key]['lrs_feat'], 'lrs_biva': per_repeat[key]['lrs_biva']})
         temp_df['y'] = temp_df['y'].astype('Int64')
         predictions = predictions.append(temp_df, ignore_index=True)
         num_pairs = num_pairs.append(temp_num_df, ignore_index=True)
 
     # performance results on a high level and per repeat
-    res_df = pd.DataFrame(columns=['method', 'cllr', 'accuracy', 'eer', 'recall', 'precision'])
-    metric_functions = {'cllr': cllr, 'acc': accuracy, 'eer': eer}
+    metric_functions = {'cllr': cllr, 'eer': eer, 'cllr_min': cllr_min,
+                        'recall': recall, 'precision': precision}
     metrics_per_repeat = pd.DataFrame()
 
-    for col in ['lrs_mfw', 'lrs_voc', 'lrs_multi', 'lrs_comb_a', 'lrs_comb_b', 'lrs_feat']:
+    for col in ['lrs_mfw', 'lrs_voc', 'lrs_multi', 'lrs_comb_a', 'lrs_comb_b', 'lrs_feat', 'lrs_biva']:
 
         method = col.replace('lrs_', '')
 
-        # generate pav plots
-        # lir.plot_pav(predictions[col], predictions['y'], savefig=f'{main_path}/pav_{col}.png')  # OLD
+        with lir.plotting.savefig(f'{main_path}/pav_{col}.png') as ax:
+            ax.pav(predictions[col].array, predictions['y'].array)
 
-        # cllr, accuracy, eer, recall and precision on a high level
-        res_df_row = pd.Series([method, cllr(predictions[col], predictions['y']), accuracy(predictions[col], predictions['y']),
-                      eer(predictions[col], predictions['y']), recall(predictions[col], predictions['y']),
-                      precision(predictions[col], predictions['y'])], index=res_df.columns)
-        res_df = res_df.append(res_df_row, ignore_index=True)
+        with lir.plotting.savefig(f'{main_path}/tippett_{col}.png') as ax:
+            ax.tippett(predictions[col].array, predictions['y'].array)
 
-        # calculate cllr, accuracy and eer per repeat
+        # calculate metrics per repeat
         for m, f in metric_functions.items():
-
             temp = predictions.groupby('repeat')[['y', col]].apply(lambda x: f(x[col], x['y'])).to_frame()
             temp.reset_index(level=0, inplace=True)
             temp['metric'] = m
@@ -248,6 +286,16 @@ if __name__ == '__main__':
             temp.rename(columns={0: 'value'}, inplace=True)
             temp = temp[['method', 'repeat', 'metric', 'value']]
             metrics_per_repeat = metrics_per_repeat.append(temp, ignore_index=True)
+
+        # calculate avg and std of the metrics
+        res_df = metrics_per_repeat.groupby(['method', 'metric']).agg(avg=('value', 'mean'),
+                                                                      std=('value', 'std')).reset_index()
+        res_df = res_df.pivot_table(index=['method'], columns='metric', values=['avg', 'std'])
+
+        res_df = res_df.sort_index(axis=1, level=1)
+        res_df.columns = [f'{y}_{x}' for x, y in res_df.columns]
+        res_df = res_df.reindex(['mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat', 'biva'])
+        res_df = res_df.reset_index()
 
     # add info on predictions
     predictions['location_A'] = np.where(predictions['conv_A'].str.endswith(('2', '4')), 'indoor', 'outdoor')
@@ -258,12 +306,28 @@ if __name__ == '__main__':
     predictions = predictions.merge(conv_len.add_suffix('_B'), left_on='conv_B', right_on='conv_id_B')
     predictions = predictions.merge(spk_metadata.add_suffix('_A'), left_on='spk_A', right_on='spk_id_A')
     predictions = predictions.merge(spk_metadata.add_suffix('_B'), left_on='spk_B', right_on='spk_id_B')
+    predictions['spk_locations'] = np.where(predictions['location_A'] == predictions['location_B'],
+                                            predictions['location_A'], 'indoor vs outdoor')
+    predictions['spk_environments'] = np.where(predictions['environment_A'] == predictions['environment_B'],
+                                               predictions['environment_A'], 'quiet vs noisy')
+    predictions['spk_num_words'] = np.where(predictions['num_words_range_A'] == predictions['num_words_range_B'],
+                                            predictions['num_words_range_A'],
+                                            np.where(((predictions['num_words_range_A'] == 'n<=400') & (
+                                                        predictions['num_words_range_B'] == '400<n<=600')) |
+                                                     ((predictions['num_words_range_B'] == 'n<=400') & (
+                                                                 predictions['num_words_range_A'] == '400<n<=600')),
+                                                     'n<=400 vs 400<n<=600',
+                                                     np.where(((predictions['num_words_range_A'] == 'n<=400') & (
+                                                                 predictions['num_words_range_B'] == 'n>600')) | \
+                                                              ((predictions['num_words_range_B'] == 'n<=400') & (
+                                                                          predictions['num_words_range_A'] == 'n>600')),
+                                                              'n<=400 vs n>600', '400<n<=600 vs n>600')))
     predictions.drop(['spk_id_A', 'spk_id_B', 'conv_id_A', 'conv_id_B'], axis=1, inplace=True)
 
 # ----------------------------------------------------------------------------------------------------------------------
 st.set_page_config(layout="wide")
 
-st.title('Fusion of a speaker and a author verification system - Exploring the predictions')
+st.title('Fusion of a speaker and a author verification system - Results exploration')
 st.markdown("""---""")
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -278,15 +342,15 @@ st.subheader('Speakers demographics')
 st.write('The speakers were males who were born and raised in Amsterdam.')
 cols = st.columns(4)
 cols[0].write(spk_metadata.age_range.value_counts(ascending=False))
-cols[1].write(spk_metadata.birth_place_father.value_counts(ascending=False))
-cols[2].write(spk_metadata.birth_place_mother.value_counts(ascending=False))
-cols[3].write(spk_metadata.second_language.value_counts(ascending=False))
+cols[1].write(spk_metadata.second_language.value_counts(ascending=False))
+# cols[2].write(spk_metadata.birth_place_father.value_counts(ascending=False))
+# cols[3].write(spk_metadata.birth_place_mother.value_counts(ascending=False))
 
 # ---------
-st.subheader('Sessions')
-st.write('We are focusing on the sessions 2, 4, 6, and 8, as those are the sessions for which a transcription is '
-         'available. The table belows shows were the conversation took place and under which background conditions.')
-st.write(conv_metadata)
+# st.subheader('Sessions')
+# st.write('We are focusing on the sessions 2, 4, 6, and 8, as those are the sessions for which a transcription is '
+#          'available. The table belows shows were the conversation took place and under which background conditions.')
+# st.write(conv_metadata)
 
 # ---------
 st.subheader('Number of words per conversation')
@@ -310,18 +374,28 @@ cols[1].write('Conversations with less than 100 words:')
 cols[1].write(conv_len[conv_len.num_words < 100].sort_values('num_words'))
 
 # ---------
-st.subheader('Most frequent words')
-
-st.image(wc.to_array())
-
-cols = st.columns(3)
-cols[0].write(words)
-cols[1].dataframe(pd.DataFrame({'perc of words': range(10, 110, 10), 'num of freq words': num_mfw}))
-cols[2].dataframe(pd.DataFrame({'num of top words': np.array([10, 50, 100, 150, 200, 300, 400, 500, 600, 1000]),
-                                'perc of words': perc_mfw}))
+# st.subheader('Most frequent words')
+#
+# st.image(wc.to_array())
+#
+# cols = st.columns(3)
+# cols[0].write(words)
+# cols[1].dataframe(pd.DataFrame({'perc of words': range(10, 110, 10), 'num of freq words': num_mfw}))
+# cols[2].dataframe(pd.DataFrame({'num of top words': np.array([10, 50, 100, 150, 200, 300, 400, 500, 600, 1000]),
+#                                 'perc of words': perc_mfw}))
 
 # ----------------------------------------------------------------------------------------------------------------------
 
+st.header('Notes on fusion')
+st.write('The following ways are considered for combining the mfw method with the voc output:')
+st.write('1. assume that mfw and voc LR are independent and multiply them (multi)')
+st.write('2a. apply classifier using as input the mfc and the voc score, then calibrate the resulted score (combi_a)')
+st.write('2b. apply classifier using as input: the mfc score, the voc score, and their product, then calibrate '
+         'the resulted score (combi_b)')
+st.write('3. use the voc score as additional feature to the mfw input vector (feat)')
+st.write('4. per class, fit bivariate normal distribution on the mfw scorers and voc output (biva)')
+
+# ----------------------------------------------------------------------------------------------------------------------
 st.header('Parameter settings')
 cols = st.columns(3)
 cols[0].write('For VOCALISE:')
@@ -360,49 +434,71 @@ st.header('Results')
 # ---------
 st.subheader('Performance metrics')
 st.write(res_df)
-st.text('(weighted average over all runs)')
 st.write(' ')
 st.write(' ')
-st.pyplot(sns.catplot(x="method", y="value", col='metric', data=metrics_per_repeat, sharey=False))
+# st.pyplot(sns.catplot(x="method", y="value", col='metric', data=metrics_per_repeat, sharey=False))
+st.pyplot(sns.catplot(x="method", y="value", col='metric', data=metrics_per_repeat, kind="box"))
 
 # ---------
 st.subheader('Checking the log10LRs')
 
-st.write('Percentiles per method (all runs)')
-perc_df = pd.DataFrame([percentiles_for_df('mfw', predictions.lrs_mfw),
-                        percentiles_for_df('voc', predictions.lrs_voc),
-                        percentiles_for_df('multi', predictions.lrs_multi),
-                        percentiles_for_df('combi_a', predictions.lrs_comb_a),
-                        percentiles_for_df('combi_b', predictions.lrs_comb_b),
-                        percentiles_for_df('feat', predictions.lrs_feat)],
-                       columns=['method', 'min', '25th', '50th', '75th', 'max'])
-st.write(perc_df)
+# st.write('Percentiles per method (all runs)')
+# perc_df = pd.DataFrame([percentiles_for_df('mfw', predictions.lrs_mfw),
+#                         percentiles_for_df('voc', predictions.lrs_voc),
+#                         percentiles_for_df('multi', predictions.lrs_multi),
+#                         percentiles_for_df('combi_a', predictions.lrs_comb_a),
+#                         percentiles_for_df('combi_b', predictions.lrs_comb_b),
+#                         percentiles_for_df('feat', predictions.lrs_feat),
+#                         percentiles_for_df('biva', predictions.lrs_biva)],
+#                        columns=['method', 'min', '25th', '50th', '75th', 'max'])
+# st.write(perc_df)
 st.write('')
 st.write('')
-st.write('Histograms and pav plots (all runs)')
-cols = st.columns(5)
-for key, m in {0: 'lrs_mfw', 1: 'lrs_voc', 2: 'lrs_multi', 3: 'lrs_comb_a', 4: 'lrs_comb_b', 5: 'lrs_feat'}.items():
-    cols[key].pyplot(lr_histogram(predictions[m], predictions['y'], title=m.replace('lrs_', '')))
-    # pav_plot = plt.imread(f'{main_path}/pav_{m}.png')
-    pav_plot = lir.pav(predictions[col], predictions['y'], show_scatter=False)
-    cols[key].image(pav_plot)
+st.write('Histograms, pav plots and tippett plots (all runs)')
+cols = st.columns(4)
+for key, m in {0: 'lrs_mfw', 1: 'lrs_voc', 2: 'lrs_multi', 3: 'lrs_comb_a', 4: 'lrs_comb_b',
+               5: 'lrs_feat', 6: 'lrs_biva', 7: 'empty'}.items():
+    if key == 7:
+        key = key % 4
+        empty_plot = plt.imread(f'{main_path}/empty.png')
+        cols[key].image(empty_plot)
+    else:
+        key = key % 4
+        cols[key].pyplot(lr_histogram(predictions[m], predictions['y'], title=m.replace('lrs_', '')))
+
+for key, m in {0: 'lrs_mfw', 1: 'lrs_voc', 2: 'lrs_multi', 3: 'lrs_comb_a', 4: 'lrs_comb_b',
+               5: 'lrs_feat', 6: 'lrs_biva', 7: 'empty'}.items():
+    if key == 7:
+        key = key % 4
+        empty_plot = plt.imread(f'{main_path}/empty.png')
+        cols[key].image(empty_plot)
+    else:
+        key = key % 4
+        pav_plot = plt.imread(f'{main_path}/pav_{m}.png')
+        cols[key].image(pav_plot)
+
+for key, m in {0: 'lrs_mfw', 1: 'lrs_voc', 2: 'lrs_multi', 3: 'lrs_comb_a', 4: 'lrs_comb_b',
+               5: 'lrs_feat', 6: 'lrs_biva', 7: 'empty'}.items():
+    if key == 7:
+        key = key % 4
+        empty_plot = plt.imread(f'{main_path}/empty.png')
+        cols[key].image(empty_plot)
+    else:
+        key = key % 4
+        tippett_plot = plt.imread(f'{main_path}/tippett_{m}.png')
+        cols[key].image(tippett_plot)
 
 # ---------
 st.subheader('Error analysis')
 
-cols = st.columns(5)
-option0 = cols[0].selectbox('Repeat', ('all', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'))
-option1 = cols[1].selectbox('Method A', ('mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat'))
-option2 = cols[2].selectbox('Method B', ('mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat'))
-option3 = cols[3].selectbox('Class (affects only the dataframe)', ('any', 'same speaker', 'different speakers'))
-option4 = cols[4].selectbox('Predictions (affects only the dataframe)', ('all', 'incorrect by A only',
-                                                                         'incorrect by B only',
-                                                                         'incorrect by both methods'))
+cols = st.columns(4)
+option1 = cols[0].selectbox('Method A', ('mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat', 'biva'), index=1)
+option2 = cols[1].selectbox('Method B', ('mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat', 'biva'), index=3)
+# option3 = cols[2].selectbox('Class', ('any', 'same speaker', 'different speakers'))
+# option4 = cols[3].selectbox('Predictions', ('all', 'incorrect by A only', 'incorrect by B only',
+#                                             'incorrect by both methods'))
 
-if option0 != 'all':
-    pred_subset = predictions[predictions['repeat'] == option0]
-else:
-    pred_subset = predictions
+pred_subset = predictions
 
 st.write(' ')
 st.write(' ')
@@ -414,59 +510,94 @@ cols[0].write(confusion_matrix(pred_subset['y'].astype(str),
                                pd.Series(np.where(pred_subset['lrs_' + option1] > 1, 1, 0)).astype(str)))
 st.write('')
 st.write('')
-grouped_loc = accuracies_per_category(['location_A', 'location_B'], 'lrs_' + option1, 'y', pred_subset)
-grouped_env = accuracies_per_category(['environment_A', 'environment_B'], 'lrs_' + option1, 'y', pred_subset)
-grouped_2_lan = accuracies_per_category(['second_language_A', 'second_language_B'], 'lrs_' + option1, 'y', pred_subset)
+grouped_loc = metrics_per_category(['spk_locations'], 'lrs_' + option1, 'y', pred_subset)
+grouped_env = metrics_per_category(['spk_environments'], 'lrs_' + option1, 'y', pred_subset)
+grouped_loc_env = metrics_per_category(['spk_locations', 'spk_environments'], 'lrs_' + option1,
+                                       'y', pred_subset)
+grouped_words = metrics_per_category(['spk_num_words'], 'lrs_' + option1, 'y', pred_subset)
+grouped_2_lan = metrics_per_category(['second_language_A', 'second_language_B'], 'lrs_' + option1, 'y', pred_subset)
 
 if option1 != option2:
     pred_subset['pred_B'] = pd.Series(np.where(pred_subset['lrs_' + option2] > 1, 1, 0))
-    cols[1].write('for '+option2)
+    cols[1].write('for ' + option2)
     cols[1].write(confusion_matrix(pred_subset['y'].astype(str), pred_subset['pred_B'].astype(str)))
 
-    temp_loc = accuracies_per_category(['location_A', 'location_B'], 'lrs_' + option2, 'y', pred_subset)
-    grouped_loc = grouped_loc.merge(temp_loc, on=['location_A', 'location_B', 'total_0', 'total_1'])
+    temp_loc = metrics_per_category(['spk_locations'], 'lrs_' + option2, 'y', pred_subset)
+    grouped_loc.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
+    temp_loc.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
+    grouped_loc = grouped_loc.merge(temp_loc, on=['spk_locations', 'total_ds', 'total_ss'])
 
-    temp_env = accuracies_per_category(['environment_A', 'environment_B'], 'lrs_' + option2, 'y', pred_subset)
-    grouped_env = grouped_env.merge(temp_env, on=['environment_A', 'environment_B', 'total_0', 'total_1'])
+    temp_env = metrics_per_category(['spk_environments'], 'lrs_' + option2, 'y', pred_subset)
+    grouped_env.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
+    temp_env.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
+    grouped_env = grouped_env.merge(temp_env, on=['spk_environments', 'total_ds', 'total_ss'])
 
-    temp_2_lan = accuracies_per_category(['second_language_A', 'second_language_B'], 'lrs_' + option2, 'y', pred_subset)
-    grouped_2_lan = grouped_2_lan.merge(temp_2_lan, on=['second_language_A', 'second_language_B', 'total_0', 'total_1'])
+    temp_loc_env = metrics_per_category(['spk_locations', 'spk_environments'],
+                                        'lrs_' + option2, 'y', pred_subset)
+    grouped_loc_env.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
+    temp_loc_env.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
+    grouped_loc_env = grouped_loc_env.merge(temp_loc_env,
+                                            on=['spk_locations', 'spk_environments', 'total_ds', 'total_ss'])
 
-st.write('accuracies depending location')
+    temp_words = metrics_per_category(['spk_num_words'], 'lrs_' + option2, 'y', pred_subset)
+    grouped_words.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
+    temp_words.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
+    grouped_words = grouped_words.merge(temp_words, on=['spk_num_words', 'total_ds', 'total_ss'])
+
+    temp_2_lan = metrics_per_category(['second_language_A', 'second_language_B'], 'lrs_' + option2, 'y', pred_subset)
+    grouped_2_lan.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
+    temp_2_lan.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
+    grouped_2_lan = grouped_2_lan.merge(temp_2_lan,
+                                        on=['second_language_A', 'second_language_B', 'total_ds', 'total_ss'])
+
+st.write('Metrics depending location')
 st.write(grouped_loc)
 st.write(' ')
 st.write(' ')
-st.write('accuracies depending environment')
+st.write('Metrics depending environment')
 st.write(grouped_env)
 st.write(' ')
 st.write(' ')
-st.write('accuracies depending second language')
+st.write('Metrics depending location and environment')
+st.write(grouped_loc_env)
+st.write(' ')
+st.write(' ')
+st.write('Metrics depending num of words')
+st.write(grouped_words)
+st.write(' ')
+st.write(' ')
+st.write('Metrics depending second language')
 st.write(grouped_2_lan)
 
-if option3 == 'same speaker':
-    pred_to_show = pred_subset[pred_subset['y'] == 1]
-elif option3 == 'different speakers':
-    pred_to_show = pred_subset[pred_subset['y'] == 0]
-else:
-    pred_to_show = pred_subset
 
-if option4 == 'incorrect by A only':
-    pred_to_show = pred_to_show[(((pred_to_show['lrs_' + option1] > 1) & (pred_to_show['y'] != 1)) |
-                                 ((pred_to_show['lrs_' + option1] <= 1) & (pred_to_show['y'] != 0))) &
-                                (((pred_to_show['lrs_' + option2] > 1) & (pred_to_show['y'] == 1)) |
-                                 ((pred_to_show['lrs_' + option2] <= 1) & (pred_to_show['y'] == 0)))]
-elif option4 == 'incorrect by B only':
-    pred_to_show = pred_to_show[(((pred_to_show['lrs_' + option1] > 1) & (pred_to_show['y'] == 1)) |
-                                 ((pred_to_show['lrs_' + option1] <= 1) & (pred_to_show['y'] == 0))) &
-                                (((pred_to_show['lrs_' + option2] > 1) & (pred_to_show['y'] != 1)) |
-                                 ((pred_to_show['lrs_' + option2] <= 1) & (pred_to_show['y'] != 0)))]
-elif option4 == 'incorrect by both methods':
-    pred_to_show = pred_to_show[(((pred_to_show['lrs_' + option1] > 1) & (pred_to_show['y'] != 1)) |
-                                 ((pred_to_show['lrs_' + option1] <= 1) & (pred_to_show['y'] != 0))) &
-                                (((pred_to_show['lrs_' + option2] > 1) & (pred_to_show['y'] != 1)) |
-                                 ((pred_to_show['lrs_' + option2] <= 1) & (pred_to_show['y'] != 0)))]
+tt = metrics_for_plotting(['spk_num_words'], pred_subset)
+st.pyplot(sns.catplot(x="value", y="spk_num_words",hue="method", col="metric",data=tt, kind="bar", orient="h"))
+print('hello')
 
-st.write(' ')
-st.write(' ')
-st.write('num of rows = ', pred_to_show.shape[0])
-st.write(pred_to_show)
+# if option3 == 'same speaker':
+#     pred_to_show = pred_subset[pred_subset['y'] == 1]
+# elif option3 == 'different speakers':
+#     pred_to_show = pred_subset[pred_subset['y'] == 0]
+# else:
+#     pred_to_show = pred_subset
+#
+# if option4 == 'incorrect by A only':
+#     pred_to_show = pred_to_show[(((pred_to_show['lrs_' + option1] > 1) & (pred_to_show['y'] != 1)) |
+#                                  ((pred_to_show['lrs_' + option1] <= 1) & (pred_to_show['y'] != 0))) &
+#                                 (((pred_to_show['lrs_' + option2] > 1) & (pred_to_show['y'] == 1)) |
+#                                  ((pred_to_show['lrs_' + option2] <= 1) & (pred_to_show['y'] == 0)))]
+# elif option4 == 'incorrect by B only':
+#     pred_to_show = pred_to_show[(((pred_to_show['lrs_' + option1] > 1) & (pred_to_show['y'] == 1)) |
+#                                  ((pred_to_show['lrs_' + option1] <= 1) & (pred_to_show['y'] == 0))) &
+#                                 (((pred_to_show['lrs_' + option2] > 1) & (pred_to_show['y'] != 1)) |
+#                                  ((pred_to_show['lrs_' + option2] <= 1) & (pred_to_show['y'] != 0)))]
+# elif option4 == 'incorrect by both methods':
+#     pred_to_show = pred_to_show[(((pred_to_show['lrs_' + option1] > 1) & (pred_to_show['y'] != 1)) |
+#                                  ((pred_to_show['lrs_' + option1] <= 1) & (pred_to_show['y'] != 0))) &
+#                                 (((pred_to_show['lrs_' + option2] > 1) & (pred_to_show['y'] != 1)) |
+#                                  ((pred_to_show['lrs_' + option2] <= 1) & (pred_to_show['y'] != 0)))]
+#
+# st.write(' ')
+# st.write(' ')
+# st.write('num of rows = ', pred_to_show.shape[0])
+# st.write(pred_to_show)
