@@ -1,22 +1,26 @@
 import lir
 import json
+import os
 
 import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
+import altair as alt
 import pandas as pd
 from wordcloud import WordCloud
 import seaborn as sns
 
 from sklearn.metrics import roc_curve, confusion_matrix
 
+
+# NOTE: the files: conversation_length.json, conversation_relative_frequencies.json, word_frequencies.json are changing
+# only if the frida data preprocessing changed (quite unlikely at the moment, so it is not taken into account)
+# NOTE 2: the metadata file stays the same
+
 main_path = 'frida/predictions'
 
-runs = ['exp1', 'exp2', 'exp3']
-specific_run = runs[1]
-# prediction_file = 'predictions_per_repeat.json'
-prediction_file = 'predictions_per_repeat_' + specific_run + '.json'
-param_file = 'param_' + specific_run + '.json'
+runs = ['exp1', 'exp2', 'exp3', 'exp4']
+specific_run = runs[3]
 
 
 # for most freq words
@@ -39,13 +43,16 @@ def most_frequent(df):
 
 # equal error rate
 def eer(lrs, y):
-    fpr, tpr, threshold = roc_curve(list(y), list(lrs), pos_label=1)
-    fnr = 1 - tpr
-    # return fpr[np.nanargmin(np.absolute((fnr - fpr)))]
-    try:
-        return fpr[np.nanargmin(np.absolute((fnr - fpr)))]
-    except ValueError:
-        return np.nan
+    if sum(y) > 1:
+        fpr, tpr, threshold = roc_curve(list(y), list(lrs), pos_label=1)
+        fnr = 1 - tpr
+        # return fpr[np.nanargmin(np.absolute((fnr - fpr)))]
+        try:
+            return fpr[np.nanargmin(np.absolute((fnr - fpr)))]
+        except ValueError:
+            return np.nan
+    else:
+        return -np.mean(lrs[y == 0] > 1)  # False positive rate
 
 
 # cllr_min
@@ -96,55 +103,27 @@ def lr_histogram(lrs, y, bins=20, title=''):
     return fig
 
 
-def metrics_per_category(cols_to_group, lrs_col, y, df):
+def metrics_per_category(cols_to_group, df):
     """
     parameters
     :param cols_to_group = list of column names
-    :param lrs_col = column name of the lrs
-    :param y = column name of the ground truth (binary 0/1)
-    :param df = dataframe with the mentioned columns
+    :param df = dataframe with the mentioned columns including ground truth column named 'y'
 
-    it returns a df where each comb of values in cols_to_group the counts and the values of diff metrics
+    it returns two df: in long and wide format. wide format incl counts for all value combination in cols_to_group.
+    both formats have the cllr and eer for all value combination in cols_to_group.
     """
     # counts
     cols = ['repeat'] + cols_to_group
-    grouped_df = df.groupby(cols)[y].agg([lambda x: sum(x == 0), lambda x: sum(x)]).reset_index()
-    grouped_df.rename(columns={'<lambda_0>': "total_ds", '<lambda_1>': "total_ss"}, inplace=True)
 
-    cllr_df = predictions.groupby(cols)[['y', lrs_col]].apply(
-        lambda x: cllr(x[lrs_col], x['y'])).to_frame().reset_index()
-    cllr_df.rename(columns={0: "cllr"}, inplace=True)
-
-    eer_df = predictions.groupby(cols)[['y', lrs_col]].apply(lambda x: eer(x[lrs_col], x['y'])).to_frame().reset_index()
-    eer_df.rename(columns={0: "eer"}, inplace=True)
-
-    grouped_all = grouped_df.merge(cllr_df, on=cols)
-    grouped_all = grouped_all.merge(eer_df, on=cols)
-    grouped_all = grouped_all.groupby(cols_to_group).agg('mean').reset_index()
-
-    grouped_all['total_ds'] = round(grouped_all['total_ds'], 1)
-    grouped_all['total_ss'] = round(grouped_all['total_ss'], 1)
-    grouped_all['cllr'] = round(grouped_all['cllr'], 3)
-    grouped_all['eer'] = round(grouped_all['eer'], 3)
-
-    return grouped_all
-
-
-def metrics_for_plotting(cols_to_group, df):
-    """
-    todo: update
-    """
-    # counts
-    cols = ['repeat'] + cols_to_group
-    final_df = pd.DataFrame()
-    for col in ['lrs_voc', 'lrs_multi', 'lrs_comb_a', 'lrs_comb_b', 'lrs_feat', 'lrs_biva']:
+    long_df = pd.DataFrame()
+    for col in ['lrs_mfw', 'lrs_voc', 'lrs_multi', 'lrs_comb_a', 'lrs_comb_b', 'lrs_feat', 'lrs_biva']:
         cllr_df = df.groupby(cols)[['y', col]].apply(lambda x: cllr(x[col], x['y'])).to_frame().reset_index()
         cllr_df.rename(columns={0: "value"}, inplace=True)
         cllr_df = cllr_df.groupby(cols_to_group).agg('mean').reset_index()
         cllr_df['metric'] = 'cllr'
         cllr_df['method'] = col.replace('lrs_', '')
         cllr_df = cllr_df[['method'] + cols_to_group + ['metric', 'value']]
-        final_df = final_df.append(cllr_df, ignore_index=True)
+        long_df = long_df.append(cllr_df, ignore_index=True)
 
         eer_df = df.groupby(cols)[['y', col]].apply(lambda x: eer(x[col], x['y'])).to_frame().reset_index()
         eer_df.rename(columns={0: "value"}, inplace=True)
@@ -152,9 +131,23 @@ def metrics_for_plotting(cols_to_group, df):
         eer_df['metric'] = 'eer'
         eer_df['method'] = col.replace('lrs_', '')
         eer_df = eer_df[['method'] + cols_to_group + ['metric', 'value']]
-        final_df = final_df.append(eer_df, ignore_index=True)
+        long_df = long_df.append(eer_df, ignore_index=True)
 
-    return final_df
+    counts = df.groupby(cols)['y'].agg([lambda x: sum(x == 0), lambda x: sum(x)]).reset_index()
+    counts.rename(columns={'<lambda_0>': "total_ds", '<lambda_1>': "total_ss"}, inplace=True)
+    counts = counts.groupby(cols_to_group).agg('mean').reset_index()
+    counts.drop(['repeat'], axis=1, inplace=True)
+
+    wide_df = pd.pivot(long_df, index=cols_to_group, columns=['method', 'metric'], values='value').reset_index()
+    wide_df.columns = ['{}/{}'.format(x[0], str(x[1])) if x[1] != '' else x[0] for x in wide_df.columns]
+    wide_df = counts.merge(wide_df, on=cols_to_group)
+
+    wide_df = wide_df[wide_df.columns[0:len(cols_to_group)+2].\
+    append(wide_df.columns[wide_df.columns.str.contains('cllr')]).\
+    append(wide_df.columns[wide_df.columns.str.contains('eer')])]
+
+    return long_df, wide_df
+
 
 if __name__ == '__main__':
 
@@ -172,12 +165,17 @@ if __name__ == '__main__':
     # num_mfw, perc_mfw = most_frequent(words)
 
     # length of the conversations (excl. words that are non-existing, incomplete, distorted or unclear)
-    conv_len = pd.read_json(f'{main_path}/conversation_length.json', orient="index")
-    conv_len.reset_index(inplace=True)
-    conv_len.rename(columns={'index': 'conv_id', 0: "num_words"}, inplace=True)
-    bins_words = [24, 400, 600, 1286]
-    names_words = ['n<=400', '400<n<=600', 'n>600']
-    conv_len['num_words_range'] = pd.cut(conv_len['num_words'], bins_words, labels=names_words).astype('O')
+
+    conv_len_path = f'{main_path}/conversation_length_clean.csv'
+    if os.path.exists(conv_len_path):
+        conv_len = pd.read_csv(conv_len_path)
+    else:
+        conv_len = pd.read_json(f'{main_path}/conversation_length.json', orient="index")
+        conv_len.reset_index(inplace=True)
+        conv_len.rename(columns={'index': 'conv_id', 0: "num_words"}, inplace=True)
+        bins_words = [24, 385, 470, 554, 663, 1286]
+        names_words = ['0<n<=385', '385<n<=470', '470<n<=554', '554<n<=663', '663<n<=1285']
+        conv_len['num_words_range'] = pd.cut(conv_len['num_words'], bins_words, labels=names_words).astype('O')
 
     spks = list(set([conv_id[:(len(conv_id) - 2)] for conv_id in conv_len.conv_id]))
 
@@ -186,106 +184,148 @@ if __name__ == '__main__':
     conv_rel_freq.columns = top_200
 
     # speaker metadata
-    spk_metadata = pd.read_csv(f'{main_path}/metadata.csv')
-    spk_metadata.drop(['PartnerID', 'RoomID', 'Nationality', 'Place of birth', 'Living place(0-7yrs)',
-                       'Education Background ', 'dialect', 'Group'], axis=1, inplace=True)
-    spk_metadata.columns = ['spk_id', 'age', 'birth_place_father', 'birth_place_mother', 'second_language']
-    spk_metadata['spk_id'] = spk_metadata['spk_id'].str.replace('Speaker', 'SP', regex=False)
+    meta_path = f'{main_path}/metadata_clean.csv'
+    if os.path.exists(meta_path):
+        spk_metadata = pd.read_csv(meta_path)
+    else:
+        spk_metadata = pd.read_csv(f'{main_path}/metadata.csv')
+        spk_metadata.drop(['PartnerID', 'RoomID', 'Nationality', 'Place of birth', 'Living place(0-7yrs)',
+                           'Education Background ', 'dialect', 'Group'], axis=1, inplace=True)
+        spk_metadata.columns = ['spk_id', 'age', 'birth_place_father', 'birth_place_mother', 'second_language']
+        spk_metadata['spk_id'] = spk_metadata['spk_id'].str.replace('Speaker', 'SP', regex=False)
+        spk_metadata['age'] = spk_metadata['age'].astype('Int64')
+
+        bins = [17, 20, 30, 56]
+        names = ['18-20', '21-30', '31-55']
+        spk_metadata['age_range'] = pd.cut(spk_metadata['age'], bins, labels=names).astype('O')
+
+        spk_metadata.drop(['age', 'birth_place_father', 'birth_place_mother'], axis=1, inplace=True)
+        # spk_metadata['birth_place_father'] = spk_metadata['birth_place_father']. \
+        #     str.replace('[mM]oroc[coan]*', 'Morocco'). \
+        #     str.replace('Turk[eyish]*', 'Turkey'). \
+        #     str.replace('Neatherlands', 'Netherlands', regex=False). \
+        #     str.replace('Holland', 'Netherlands', regex=False). \
+        #     str.replace('Dutch', 'Netherlands', regex=False). \
+        #     str.replace('Amsterdam', 'Netherlands', regex=False)
+        # spk_metadata['birth_place_mother'] = spk_metadata['birth_place_mother']. \
+        #     str.replace('[mM]oroc[coan]*', 'Morocco'). \
+        #     str.replace('Tu[r]{0,1}k[eyish]*', 'Turkey'). \
+        #     str.replace('Neatherlands', 'Netherlands', regex=False). \
+        #     str.replace('Hol[la][la]n[d]{0,1}', 'Netherlands'). \
+        #     str.replace('Dutch', 'Netherlands', regex=False)
+        spk_metadata['second_language'] = spk_metadata['second_language']. \
+            str.replace('[mM]o[rc]oc[coan]*', 'Moroccan'). \
+            str.replace('Tu[r]{0,1}k[eyish]*', 'Turkish'). \
+            str.replace('Enligsh', 'English', regex=False)
+        spk_metadata.to_csv(meta_path, index=False)
 
     spks_in_meta = spk_metadata.spk_id.tolist()
     spks_not_in_meta = list(set(spks) - set(spks_in_meta))
     spks_in_meta_with_no_trans = list(set(spks_in_meta) - set(spks))
 
     spk_metadata = spk_metadata[spk_metadata['spk_id'].isin(spks)]
-    spk_metadata['age'] = spk_metadata['age'].astype('Int64')
-
-    bins = [17, 20, 30, 56]
-    names = ['18-20', '21-30', '31-55']
-    spk_metadata['age_range'] = pd.cut(spk_metadata['age'], bins, labels=names).astype('O')
-
-    spk_metadata.drop(['age', 'birth_place_father', 'birth_place_mother'], axis=1, inplace=True)
-    # spk_metadata['birth_place_father'] = spk_metadata['birth_place_father']. \
-    #     str.replace('[mM]oroc[coan]*', 'Morocco'). \
-    #     str.replace('Turk[eyish]*', 'Turkey'). \
-    #     str.replace('Neatherlands', 'Netherlands', regex=False). \
-    #     str.replace('Holland', 'Netherlands', regex=False). \
-    #     str.replace('Dutch', 'Netherlands', regex=False). \
-    #     str.replace('Amsterdam', 'Netherlands', regex=False)
-    # spk_metadata['birth_place_mother'] = spk_metadata['birth_place_mother']. \
-    #     str.replace('[mM]oroc[coan]*', 'Morocco'). \
-    #     str.replace('Tu[r]{0,1}k[eyish]*', 'Turkey'). \
-    #     str.replace('Neatherlands', 'Netherlands', regex=False). \
-    #     str.replace('Hol[la][la]n[d]{0,1}', 'Netherlands'). \
-    #     str.replace('Dutch', 'Netherlands', regex=False)
-    spk_metadata['second_language'] = spk_metadata['second_language']. \
-        str.replace('[mM]o[rc]oc[coan]*', 'Moroccan'). \
-        str.replace('Tu[r]{0,1}k[eyish]*', 'Turkish'). \
-        str.replace('Enligsh', 'English', regex=False)
 
     # # create conversation metadata
     # conv_metadata = pd.DataFrame({'session': [2, 4, 6, 8], 'location': ['indoor', 'indoor', 'outdoor', 'outdoor'],
     #                               'environment': ['quiet', 'noisy', 'quiet', 'noisy']})
 
     # parameters
-    with open(f'{main_path}/{param_file}') as p:
+    with open(f'{main_path}/{specific_run}/param.json') as p:
         param = json.load(p)
 
     # predictions
-    with open(f'{main_path}/{prediction_file}') as f:
-        per_repeat = json.load(f)
+    pred_path = f'{main_path}/{specific_run}/predictions_clean.csv'
+    num_pairs_path = f'{main_path}/{specific_run}/num_pairs.csv'
+    if os.path.exists(pred_path):
+        predictions = pd.read_csv(pred_path)
+        num_pairs = pd.read_csv(num_pairs_path)
+    else:
+        with open(f'{main_path}/{specific_run}/predictions_per_repeat.json') as f:
+            per_repeat = json.load(f)
 
-    predictions = pd.DataFrame()
-    num_pairs = pd.DataFrame()
+        predictions = pd.DataFrame()
+        num_pairs = pd.DataFrame()
 
-    for key in per_repeat.keys():
-        train_same, train_diff = sum(np.array(per_repeat[key]['train']) == 1), \
-                                 sum(np.array(per_repeat[key]['train']) == 0)
-        test_same, test_diff = sum(np.array(per_repeat[key]['y']) == 1), sum(np.array(per_repeat[key]['y']) == 0)
-        temp_num_df = pd.DataFrame({'repeat': key, 'train_same': train_same, 'train_diff': train_diff,
-                                    'train_all': len(per_repeat[key]['train']), 'test_same': test_same,
-                                    'test_diff': test_diff, 'test_all': len(per_repeat[key]['y'])}, index=[0])
+        for key in per_repeat.keys():
+            train_same, train_diff = sum(np.array(per_repeat[key]['train']) == 1), \
+                                     sum(np.array(per_repeat[key]['train']) == 0)
+            test_same, test_diff = sum(np.array(per_repeat[key]['y']) == 1), sum(np.array(per_repeat[key]['y']) == 0)
+            temp_num_df = pd.DataFrame({'repeat': key, 'train_same': train_same, 'train_diff': train_diff,
+                                        'train_all': len(per_repeat[key]['train']), 'test_same': test_same,
+                                        'test_diff': test_diff, 'test_all': len(per_repeat[key]['y'])}, index=[0])
 
-        # pairs are in the form of SPXXXXXSPXXXXX
-        conv_A = ['SP' + pair.split('SP')[1] for pair in per_repeat[key]['pairs']]
-        spk_A = [conv_id[:-2] for conv_id in conv_A]
-        conv_B = ['SP' + pair.split('SP')[2] for pair in per_repeat[key]['pairs']]
-        spk_B = [conv_id[:-2] for conv_id in conv_B]
-        lrs_multi = [a * b for a, b in zip(per_repeat[key]['lrs_mfw'], per_repeat[key]['lrs_voc'])]
+            # pairs are in the form of SPXXXXXSPXXXXX
+            conv_A = ['SP' + pair.split('SP')[1] for pair in per_repeat[key]['pairs']]
+            spk_A = [conv_id[:-2] for conv_id in conv_A]
+            conv_B = ['SP' + pair.split('SP')[2] for pair in per_repeat[key]['pairs']]
+            spk_B = [conv_id[:-2] for conv_id in conv_B]
+            lrs_multi = [a * b for a, b in zip(per_repeat[key]['lrs_mfw'], per_repeat[key]['lrs_voc'])]
 
-        temp_df = pd.DataFrame({'repeat': key, 'spk_A': spk_A, 'spk_B': spk_B, 'conv_A': conv_A, 'conv_B': conv_B,
-                                'y': per_repeat[key]['y'], 'lrs_mfw': per_repeat[key]['lrs_mfw'],
-                                'lrs_voc': per_repeat[key]['lrs_voc'], 'lrs_multi': lrs_multi,
-                                'lrs_comb_a': per_repeat[key]['lrs_comb_a'],
-                                'lrs_comb_b': per_repeat[key]['lrs_comb_b'],
-                                'lrs_feat': per_repeat[key]['lrs_feat'], 'lrs_biva': per_repeat[key]['lrs_biva']})
-        temp_df['y'] = temp_df['y'].astype('Int64')
-        predictions = predictions.append(temp_df, ignore_index=True)
-        num_pairs = num_pairs.append(temp_num_df, ignore_index=True)
+            temp_df = pd.DataFrame({'repeat': key, 'spk_A': spk_A, 'spk_B': spk_B, 'conv_A': conv_A, 'conv_B': conv_B,
+                                    'y': per_repeat[key]['y'], 'lrs_mfw': per_repeat[key]['lrs_mfw'],
+                                    'lrs_voc': per_repeat[key]['lrs_voc'], 'lrs_multi': lrs_multi,
+                                    'lrs_comb_a': per_repeat[key]['lrs_comb_a'],
+                                    'lrs_comb_b': per_repeat[key]['lrs_comb_b'],
+                                    'lrs_feat': per_repeat[key]['lrs_feat'], 'lrs_biva': per_repeat[key]['lrs_biva']})
+            temp_df['y'] = temp_df['y'].astype('Int64')
+            predictions = predictions.append(temp_df, ignore_index=True)
+            num_pairs = num_pairs.append(temp_num_df, ignore_index=True)
+
+        # add info on predictions
+        predictions['location_A'] = np.where(predictions['conv_A'].str.endswith(('2', '4')), 'indoor', 'outdoor')
+        predictions['environment_A'] = np.where(predictions['conv_A'].str.endswith(('2', '6')), 'quiet', 'noisy')
+        predictions['location_B'] = np.where(predictions['conv_B'].str.endswith(('2', '4')), 'indoor', 'outdoor')
+        predictions['environment_B'] = np.where(predictions['conv_B'].str.endswith(('2', '6')), 'quiet', 'noisy')
+        predictions = predictions.merge(conv_len.add_suffix('_A'), left_on='conv_A', right_on='conv_id_A')
+        predictions = predictions.merge(conv_len.add_suffix('_B'), left_on='conv_B', right_on='conv_id_B')
+        predictions = predictions.merge(spk_metadata.add_suffix('_A'), left_on='spk_A', right_on='spk_id_A')
+        predictions = predictions.merge(spk_metadata.add_suffix('_B'), left_on='spk_B', right_on='spk_id_B')
+        predictions['spk_locations'] = np.where(predictions['location_A'] == predictions['location_B'],
+                                                predictions['location_A'], 'indoor vs outdoor')
+        predictions['spk_environments'] = np.where(predictions['environment_A'] == predictions['environment_B'],
+                                                   predictions['environment_A'], 'quiet vs noisy')
+        predictions.drop(['spk_id_A', 'spk_id_B', 'conv_id_A', 'conv_id_B'], axis=1, inplace=True)
+        predictions['spk_num_words'] = predictions[['num_words_range_A', 'num_words_range_B']].values.tolist()
+        predictions['spk_num_words'] = predictions['spk_num_words'].apply(sorted)
+        predictions['spk_num_words'] = predictions['spk_num_words']. \
+            apply(lambda x: x[0] if x[0] == x[1] else x[0] + ' vs ' + x[1])
+
+        predictions['words_diff'] = abs(predictions['num_words_A'] - predictions['num_words_B'])
+        bins_diff = np.percentile(predictions.words_diff, range(0, 101, 10))
+        names_diff = [str(i) + '.' + str(int(bins_diff[i])) + '-' + str(int(bins_diff[i + 1])) for i in
+                      range(len(bins_diff) - 1)]
+        predictions['words_diff_range'] = pd.cut(predictions['words_diff'], bins_diff, labels=names_diff).astype('O')
+
+        predictions.to_csv(pred_path, index=False)
+        num_pairs.to_csv(num_pairs_path, index=False)
 
     # performance results on a high level and per repeat
-    metric_functions = {'cllr': cllr, 'eer': eer, 'cllr_min': cllr_min,
-                        'recall': recall, 'precision': precision}
-    metrics_per_repeat = pd.DataFrame()
+    metrics_path = f'{main_path}/{specific_run}/metrics_per_repeat.csv'
+    if os.path.exists(metrics_path):
+        metrics_per_repeat = pd.read_csv(metrics_path)
+    else:
+        metric_functions = {'cllr': cllr, 'eer': eer, 'cllr_min': cllr_min, 'recall': recall, 'precision': precision}
+        metrics_per_repeat = pd.DataFrame()
 
-    for col in ['lrs_mfw', 'lrs_voc', 'lrs_multi', 'lrs_comb_a', 'lrs_comb_b', 'lrs_feat', 'lrs_biva']:
+        for col in ['lrs_mfw', 'lrs_voc', 'lrs_multi', 'lrs_comb_a', 'lrs_comb_b', 'lrs_feat', 'lrs_biva']:
 
-        method = col.replace('lrs_', '')
+            method = col.replace('lrs_', '')
 
-        with lir.plotting.savefig(f'{main_path}/pav_{col}.png') as ax:
-            ax.pav(predictions[col].array, predictions['y'].array)
+            with lir.plotting.savefig(f'{main_path}/{specific_run}/pav_{col}.png') as ax:
+                ax.pav(predictions[col].array, predictions['y'].array)
 
-        with lir.plotting.savefig(f'{main_path}/tippett_{col}.png') as ax:
-            ax.tippett(predictions[col].array, predictions['y'].array)
+            with lir.plotting.savefig(f'{main_path}/{specific_run}/tippett_{col}.png') as ax:
+                ax.tippett(predictions[col].array, predictions['y'].array)
 
-        # calculate metrics per repeat
-        for m, f in metric_functions.items():
-            temp = predictions.groupby('repeat')[['y', col]].apply(lambda x: f(x[col], x['y'])).to_frame()
-            temp.reset_index(level=0, inplace=True)
-            temp['metric'] = m
-            temp['method'] = method
-            temp.rename(columns={0: 'value'}, inplace=True)
-            temp = temp[['method', 'repeat', 'metric', 'value']]
-            metrics_per_repeat = metrics_per_repeat.append(temp, ignore_index=True)
+            # calculate metrics per repeat
+            for m, f in metric_functions.items():
+                temp = predictions.groupby('repeat')[['y', col]].apply(lambda x: f(x[col], x['y'])).to_frame()
+                temp.reset_index(level=0, inplace=True)
+                temp['metric'] = m
+                temp['method'] = method
+                temp.rename(columns={0: 'value'}, inplace=True)
+                temp = temp[['method', 'repeat', 'metric', 'value']]
+                metrics_per_repeat = metrics_per_repeat.append(temp, ignore_index=True)
 
         # calculate avg and std of the metrics
         res_df = metrics_per_repeat.groupby(['method', 'metric']).agg(avg=('value', 'mean'),
@@ -297,32 +337,6 @@ if __name__ == '__main__':
         res_df = res_df.reindex(['mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat', 'biva'])
         res_df = res_df.reset_index()
 
-    # add info on predictions
-    predictions['location_A'] = np.where(predictions['conv_A'].str.endswith(('2', '4')), 'indoor', 'outdoor')
-    predictions['environment_A'] = np.where(predictions['conv_A'].str.endswith(('2', '6')), 'quiet', 'noisy')
-    predictions['location_B'] = np.where(predictions['conv_B'].str.endswith(('2', '4')), 'indoor', 'outdoor')
-    predictions['environment_B'] = np.where(predictions['conv_B'].str.endswith(('2', '6')), 'quiet', 'noisy')
-    predictions = predictions.merge(conv_len.add_suffix('_A'), left_on='conv_A', right_on='conv_id_A')
-    predictions = predictions.merge(conv_len.add_suffix('_B'), left_on='conv_B', right_on='conv_id_B')
-    predictions = predictions.merge(spk_metadata.add_suffix('_A'), left_on='spk_A', right_on='spk_id_A')
-    predictions = predictions.merge(spk_metadata.add_suffix('_B'), left_on='spk_B', right_on='spk_id_B')
-    predictions['spk_locations'] = np.where(predictions['location_A'] == predictions['location_B'],
-                                            predictions['location_A'], 'indoor vs outdoor')
-    predictions['spk_environments'] = np.where(predictions['environment_A'] == predictions['environment_B'],
-                                               predictions['environment_A'], 'quiet vs noisy')
-    predictions['spk_num_words'] = np.where(predictions['num_words_range_A'] == predictions['num_words_range_B'],
-                                            predictions['num_words_range_A'],
-                                            np.where(((predictions['num_words_range_A'] == 'n<=400') & (
-                                                        predictions['num_words_range_B'] == '400<n<=600')) |
-                                                     ((predictions['num_words_range_B'] == 'n<=400') & (
-                                                                 predictions['num_words_range_A'] == '400<n<=600')),
-                                                     'n<=400 vs 400<n<=600',
-                                                     np.where(((predictions['num_words_range_A'] == 'n<=400') & (
-                                                                 predictions['num_words_range_B'] == 'n>600')) | \
-                                                              ((predictions['num_words_range_B'] == 'n<=400') & (
-                                                                          predictions['num_words_range_A'] == 'n>600')),
-                                                              'n<=400 vs n>600', '400<n<=600 vs n>600')))
-    predictions.drop(['spk_id_A', 'spk_id_B', 'conv_id_A', 'conv_id_B'], axis=1, inplace=True)
 
 # ----------------------------------------------------------------------------------------------------------------------
 st.set_page_config(layout="wide")
@@ -371,7 +385,7 @@ cols[1].write(('75th percentile =', np.round(np.percentile(conv_len.num_words, 7
 cols[1].write(('Max =', conv_len.num_words.max()))
 cols[1].write('')
 cols[1].write('Conversations with less than 100 words:')
-cols[1].write(conv_len[conv_len.num_words < 100].sort_values('num_words'))
+cols[1].write(conv_len[conv_len.num_words < 100][['conv_id', 'num_words']].sort_values('num_words'))
 
 # ---------
 # st.subheader('Most frequent words')
@@ -452,127 +466,166 @@ st.subheader('Checking the log10LRs')
 #                         percentiles_for_df('biva', predictions.lrs_biva)],
 #                        columns=['method', 'min', '25th', '50th', '75th', 'max'])
 # st.write(perc_df)
-st.write('')
-st.write('')
+# st.write('')
+# st.write('')
 st.write('Histograms, pav plots and tippett plots (all runs)')
 cols = st.columns(4)
-for key, m in {0: 'lrs_mfw', 1: 'lrs_voc', 2: 'lrs_multi', 3: 'lrs_comb_a', 4: 'lrs_comb_b',
-               5: 'lrs_feat', 6: 'lrs_biva', 7: 'empty'}.items():
-    if key == 7:
-        key = key % 4
-        empty_plot = plt.imread(f'{main_path}/empty.png')
-        cols[key].image(empty_plot)
-    else:
-        key = key % 4
-        cols[key].pyplot(lr_histogram(predictions[m], predictions['y'], title=m.replace('lrs_', '')))
+plots = ['h', 'p', 't']
 
-for key, m in {0: 'lrs_mfw', 1: 'lrs_voc', 2: 'lrs_multi', 3: 'lrs_comb_a', 4: 'lrs_comb_b',
-               5: 'lrs_feat', 6: 'lrs_biva', 7: 'empty'}.items():
-    if key == 7:
-        key = key % 4
-        empty_plot = plt.imread(f'{main_path}/empty.png')
-        cols[key].image(empty_plot)
-    else:
-        key = key % 4
-        pav_plot = plt.imread(f'{main_path}/pav_{m}.png')
-        cols[key].image(pav_plot)
+for plot_type in plots:
+    for key, m in {0: 'lrs_mfw', 1: 'lrs_voc', 2: 'lrs_multi', 3: 'lrs_comb_a', 4: 'lrs_comb_b',
+                   5: 'lrs_feat', 6: 'lrs_biva', 7: 'empty'}.items():
+        if key == 7:
+            key = key % 4
+            empty_plot = plt.imread(f'{main_path}/empty.png')
+            cols[key].image(empty_plot)
+        else:
+            key = key % 4
+            if plot_type == 'h':
+                cols[key].pyplot(lr_histogram(predictions[m], predictions['y'], title=m.replace('lrs_', '')))
+            elif plot_type == 'p':
+                pav_plot = plt.imread(f'{main_path}/{specific_run}/pav_{m}.png')
+                cols[key].image(pav_plot)
+            elif plot_type == 't':
+                tippett_plot = plt.imread(f'{main_path}/{specific_run}/tippett_{m}.png')
+                cols[key].image(tippett_plot)
+            else:
+                col[key].write('no plot available')
 
-for key, m in {0: 'lrs_mfw', 1: 'lrs_voc', 2: 'lrs_multi', 3: 'lrs_comb_a', 4: 'lrs_comb_b',
-               5: 'lrs_feat', 6: 'lrs_biva', 7: 'empty'}.items():
-    if key == 7:
-        key = key % 4
-        empty_plot = plt.imread(f'{main_path}/empty.png')
-        cols[key].image(empty_plot)
-    else:
-        key = key % 4
-        tippett_plot = plt.imread(f'{main_path}/tippett_{m}.png')
-        cols[key].image(tippett_plot)
 
 # ---------
 st.subheader('Error analysis')
 
-cols = st.columns(4)
-option1 = cols[0].selectbox('Method A', ('mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat', 'biva'), index=1)
-option2 = cols[1].selectbox('Method B', ('mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat', 'biva'), index=3)
+# , orient="h"
+env_loc_for_plot, table_env_loc = metrics_per_category(['spk_locations', 'spk_environments'], predictions)
+
+loc_env_chart = alt.Chart(env_loc_for_plot[(env_loc_for_plot.method != 'mfw') & (env_loc_for_plot.metric != 'eer')]).\
+    mark_bar().encode(
+    x="value",
+    y=alt.Y("method", sort=['mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat', 'biva']),
+    color=alt.Color("method", scale=alt.Scale(scheme='tableau10'), sort=['mfw', 'voc', 'multi', 'comb_a', 'comb_b',
+                                                                         'feat', 'biva']),
+    column="spk_environments",
+    row='spk_locations'
+)
+
+st.altair_chart(loc_env_chart)
+st.write(table_env_loc)
+
+words_for_plot, table_words = metrics_per_category(['spk_num_words'], predictions)
+words_diff_for_plot, table_words_diff = metrics_per_category(['words_diff_range'], predictions)
+
+words_chart = alt.Chart(words_for_plot[(words_for_plot.method != 'mfw') & (words_for_plot.metric != 'eer')]).\
+    mark_bar().encode(
+    x="value",
+    y=alt.Y("method", sort=['mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat', 'biva']),
+    color=alt.Color("method", scale=alt.Scale(scheme='tableau10'), sort=['mfw', 'voc', 'multi', 'comb_a', 'comb_b',
+                                                                         'feat', 'biva']),
+    row="spk_num_words"
+)
+
+words_chart_diff = alt.Chart(words_diff_for_plot[(words_diff_for_plot.method != 'mfw') &
+                                                 (words_diff_for_plot.metric != 'eer')]).mark_bar().encode(
+    x="value",
+    y=alt.Y("method", sort=['mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat', 'biva']),
+    color=alt.Color("method", scale=alt.Scale(scheme='tableau10'), sort=['mfw', 'voc', 'multi', 'comb_a', 'comb_b',
+                                                                         'feat', 'biva']),
+    row="words_diff_range"
+)
+cols = st.columns(2)
+cols[0].altair_chart(words_chart)
+cols[1].altair_chart(words_chart_diff)
+
+
+st.write(table_words)
+st.write(table_words_diff)
+
+
+
+# st.pyplot(sns.catplot(x="spk_environments", y="value", hue="method", col='spk_locations',
+#                       data=env_loc_for_plot[env_loc_for_plot['metric'] == 'cllr'],kind="bar"))
+# cols = st.columns(2)
+# cols[0].pyplot(sns.catplot(x="spk_num_words", y="value", hue="method",
+#                            data=words_for_plot[words_for_plot['metric'] == 'cllr'],kind="bar",
+#                            order=['n<=400', 'n<=400 vs 400<n<=600', 'n<=400 vs n>600','400<n<=600', '400<n<=600 vs n>600', 'n>600']))
+#
+# cols = st.columns(4)
+# option1 = cols[0].selectbox('Method A', ('mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat', 'biva'), index=1)
+# option2 = cols[1].selectbox('Method B', ('mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat', 'biva'), index=3)
 # option3 = cols[2].selectbox('Class', ('any', 'same speaker', 'different speakers'))
 # option4 = cols[3].selectbox('Predictions', ('all', 'incorrect by A only', 'incorrect by B only',
 #                                             'incorrect by both methods'))
 
-pred_subset = predictions
+# pred_subset = predictions
+# st.write(' ')
+# st.write(' ')
+# st.write('Confusion matrices (true labels -> rows, predicted labels -> columns):')
+# cols = st.columns(2)
+#
+# cols[0].write('for ' + option1)
+# cols[0].write(confusion_matrix(pred_subset['y'].astype(str),
+#                                pd.Series(np.where(pred_subset['lrs_' + option1] > 1, 1, 0)).astype(str)))
+# st.write('')
+# st.write('')
+# grouped_loc = metrics_per_category(['spk_locations'], 'lrs_' + option1, 'y', pred_subset)
+# grouped_env = metrics_per_category(['spk_environments'], 'lrs_' + option1, 'y', pred_subset)
+# grouped_loc_env = metrics_per_category(['spk_locations', 'spk_environments'], 'lrs_' + option1,
+#                                        'y', pred_subset)
+# grouped_words = metrics_per_category(['spk_num_words'], 'lrs_' + option1, 'y', pred_subset)
+# grouped_2_lan = metrics_per_category(['second_language_A', 'second_language_B'], 'lrs_' + option1, 'y', pred_subset)
+#
+# if option1 != option2:
+#     pred_subset['pred_B'] = pd.Series(np.where(pred_subset['lrs_' + option2] > 1, 1, 0))
+#     cols[1].write('for ' + option2)
+#     cols[1].write(confusion_matrix(pred_subset['y'].astype(str), pred_subset['pred_B'].astype(str)))
+#
+#     temp_loc = metrics_per_category(['spk_locations'], 'lrs_' + option2, 'y', pred_subset)
+#     grouped_loc.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
+#     temp_loc.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
+#     grouped_loc = grouped_loc.merge(temp_loc, on=['spk_locations', 'total_ds', 'total_ss'])
+#
+#     temp_env = metrics_per_category(['spk_environments'], 'lrs_' + option2, 'y', pred_subset)
+#     grouped_env.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
+#     temp_env.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
+#     grouped_env = grouped_env.merge(temp_env, on=['spk_environments', 'total_ds', 'total_ss'])
+#
+#     temp_loc_env = metrics_per_category(['spk_locations', 'spk_environments'],
+#                                         'lrs_' + option2, 'y', pred_subset)
+#     grouped_loc_env.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
+#     temp_loc_env.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
+#     grouped_loc_env = grouped_loc_env.merge(temp_loc_env,
+#                                             on=['spk_locations', 'spk_environments', 'total_ds', 'total_ss'])
+#
+#     temp_words = metrics_per_category(['spk_num_words'], 'lrs_' + option2, 'y', pred_subset)
+#     grouped_words.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
+#     temp_words.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
+#     grouped_words = grouped_words.merge(temp_words, on=['spk_num_words', 'total_ds', 'total_ss'])
+#
+#     temp_2_lan = metrics_per_category(['second_language_A', 'second_language_B'], 'lrs_' + option2, 'y', pred_subset)
+#     grouped_2_lan.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
+#     temp_2_lan.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
+#     grouped_2_lan = grouped_2_lan.merge(temp_2_lan,
+#                                         on=['second_language_A', 'second_language_B', 'total_ds', 'total_ss'])
+#
+# st.write('Metrics depending location')
+# st.write(grouped_loc)
+# st.write(' ')
+# st.write(' ')
+# st.write('Metrics depending environment')
+# st.write(grouped_env)
+# st.write(' ')
+# st.write(' ')
+# st.write('Metrics depending location and environment')
+# st.write(grouped_loc_env)
+# st.write(' ')
+# st.write(' ')
+# st.write('Metrics depending num of words')
+# st.write(grouped_words)
+# st.write(' ')
+# st.write(' ')
+# st.write('Metrics depending second language')
+# st.write(grouped_2_lan)
 
-st.write(' ')
-st.write(' ')
-st.write('Confusion matrices (true labels -> rows, predicted labels -> columns):')
-cols = st.columns(2)
-
-cols[0].write('for ' + option1)
-cols[0].write(confusion_matrix(pred_subset['y'].astype(str),
-                               pd.Series(np.where(pred_subset['lrs_' + option1] > 1, 1, 0)).astype(str)))
-st.write('')
-st.write('')
-grouped_loc = metrics_per_category(['spk_locations'], 'lrs_' + option1, 'y', pred_subset)
-grouped_env = metrics_per_category(['spk_environments'], 'lrs_' + option1, 'y', pred_subset)
-grouped_loc_env = metrics_per_category(['spk_locations', 'spk_environments'], 'lrs_' + option1,
-                                       'y', pred_subset)
-grouped_words = metrics_per_category(['spk_num_words'], 'lrs_' + option1, 'y', pred_subset)
-grouped_2_lan = metrics_per_category(['second_language_A', 'second_language_B'], 'lrs_' + option1, 'y', pred_subset)
-
-if option1 != option2:
-    pred_subset['pred_B'] = pd.Series(np.where(pred_subset['lrs_' + option2] > 1, 1, 0))
-    cols[1].write('for ' + option2)
-    cols[1].write(confusion_matrix(pred_subset['y'].astype(str), pred_subset['pred_B'].astype(str)))
-
-    temp_loc = metrics_per_category(['spk_locations'], 'lrs_' + option2, 'y', pred_subset)
-    grouped_loc.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
-    temp_loc.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
-    grouped_loc = grouped_loc.merge(temp_loc, on=['spk_locations', 'total_ds', 'total_ss'])
-
-    temp_env = metrics_per_category(['spk_environments'], 'lrs_' + option2, 'y', pred_subset)
-    grouped_env.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
-    temp_env.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
-    grouped_env = grouped_env.merge(temp_env, on=['spk_environments', 'total_ds', 'total_ss'])
-
-    temp_loc_env = metrics_per_category(['spk_locations', 'spk_environments'],
-                                        'lrs_' + option2, 'y', pred_subset)
-    grouped_loc_env.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
-    temp_loc_env.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
-    grouped_loc_env = grouped_loc_env.merge(temp_loc_env,
-                                            on=['spk_locations', 'spk_environments', 'total_ds', 'total_ss'])
-
-    temp_words = metrics_per_category(['spk_num_words'], 'lrs_' + option2, 'y', pred_subset)
-    grouped_words.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
-    temp_words.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
-    grouped_words = grouped_words.merge(temp_words, on=['spk_num_words', 'total_ds', 'total_ss'])
-
-    temp_2_lan = metrics_per_category(['second_language_A', 'second_language_B'], 'lrs_' + option2, 'y', pred_subset)
-    grouped_2_lan.rename(columns={'cllr': 'cllr' + '_' + option1, 'eer': 'eer' + '_' + option1}, inplace=True)
-    temp_2_lan.rename(columns={'cllr': 'cllr' + '_' + option2, 'eer': 'eer' + '_' + option2}, inplace=True)
-    grouped_2_lan = grouped_2_lan.merge(temp_2_lan,
-                                        on=['second_language_A', 'second_language_B', 'total_ds', 'total_ss'])
-
-st.write('Metrics depending location')
-st.write(grouped_loc)
-st.write(' ')
-st.write(' ')
-st.write('Metrics depending environment')
-st.write(grouped_env)
-st.write(' ')
-st.write(' ')
-st.write('Metrics depending location and environment')
-st.write(grouped_loc_env)
-st.write(' ')
-st.write(' ')
-st.write('Metrics depending num of words')
-st.write(grouped_words)
-st.write(' ')
-st.write(' ')
-st.write('Metrics depending second language')
-st.write(grouped_2_lan)
-
-
-tt = metrics_for_plotting(['spk_num_words'], pred_subset)
-st.pyplot(sns.catplot(x="value", y="spk_num_words",hue="method", col="metric",data=tt, kind="bar", orient="h"))
-print('hello')
 
 # if option3 == 'same speaker':
 #     pred_to_show = pred_subset[pred_subset['y'] == 1]
