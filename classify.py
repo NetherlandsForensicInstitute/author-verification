@@ -75,7 +75,7 @@ class KdeCdfTransformer(sklearn.base.TransformerMixin):
             feature_values = X[:, i]
             lower, upper = self.get_range(feature_values)
 
-            kernel = sklearn.neighbors.KernelDensity(kernel='gaussian', bandwidth=.1).fit(feature_values.reshape(-1, 1))
+            kernel = sklearn.neighbors.KernelDensity(kernel='gaussian').fit(feature_values.reshape(-1, 1))
             precomputed_values = np.arange(self._resolution + 1).reshape(-1, 1) / self._resolution * (
                         upper - lower) + lower
             density = np.exp(kernel.score_samples(precomputed_values))
@@ -84,7 +84,14 @@ class KdeCdfTransformer(sklearn.base.TransformerMixin):
             self._kernels.append(cumulative_density)
 
             if self._plot_cdf:
-                plt.plot(precomputed_values, cumulative_density)
+                plt.close()
+                plt.figure()
+                # plt.plot(precomputed_values, cumulative_density)
+                plt.plot(precomputed_values, density)
+                plt.hist(feature_values, density=True)
+                plt.show()
+                pass
+
 
         if self._plot_cdf:
             plt.show()
@@ -250,16 +257,16 @@ class makeplots:
         LOG.info(
             f'  cllr, acc: {cllr, acc}')
 
-        path_prefix = os.path.join(self.path_prefix, shortname.replace('*', ''))
-        tippet_path = f'{path_prefix}_tippet.png' if self.path_prefix is not None else None
-        pav_path = f'{path_prefix}_pav.png' if self.path_prefix is not None else None
-        ece_path = f'{path_prefix}_ece.png' if self.path_prefix is not None else None
-
-        kw_figure = {}
-
-        lir.plotting.plot_tippett(lrs, y, savefig=tippet_path, kw_figure=kw_figure)
-        lir.plotting.plot_pav(lrs, y, savefig=pav_path, kw_figure=kw_figure)
-        lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
+        # path_prefix = os.path.join(self.path_prefix, shortname.replace('*', ''))
+        # tippet_path = f'{path_prefix}_tippet.png' if self.path_prefix is not None else None
+        # pav_path = f'{path_prefix}_pav.png' if self.path_prefix is not None else None
+        # ece_path = f'{path_prefix}_ece.png' if self.path_prefix is not None else None
+        #
+        # kw_figure = {}
+        #
+        # lir.plotting.plot_tippett(lrs, y, savefig=tippet_path, kw_figure=kw_figure)
+        # lir.plotting.plot_pav(lrs, y, savefig=pav_path, kw_figure=kw_figure)
+        # lir.ece.plot(lrs, y, path=ece_path, on_screen=not ece_path, kw_figure=kw_figure)
 
 
 def get_pairs(X, y, authors_subset, sample_size):
@@ -393,7 +400,8 @@ def run(dataset, resultdir):
     ])
 
     prep_kde = sklearn.pipeline.Pipeline([
-        ('scale:standard', sklearn.preprocessing.StandardScaler()),
+        # ('scale:standard', sklearn.preprocessing.StandardScaler()),
+        # ('pop:kde', KdeCdfTransformer(plot_cdf=True)),
         ('pop:kde', KdeCdfTransformer()),  # cumulative density function for each feature
     ])
 
@@ -411,15 +419,16 @@ def run(dataset, resultdir):
         ('dist:man', VectorDistance(scipy.spatial.distance.cityblock)),
     ])
 
-    logit = sklearn.pipeline.Pipeline([
+    man_logit = sklearn.pipeline.Pipeline([
         ('diff:abs', transformers.AbsDiffTransformer()),
         # ('shan', ShanDistance()),
-        ('clf:logit', LogisticRegression(max_iter=600, class_weight='balanced')),
+        # ('clf:logit', LogisticRegression(max_iter=600, class_weight='balanced')),
+        ('clf:logit', LogisticRegression(max_iter=600)),
     ])
 
     logit_br = sklearn.pipeline.Pipeline([
         ('bray', BrayDistance()),
-        ('clf:logit', LogisticRegression(class_weight='balanced')),
+        ('clf:logit', LogisticRegression()),
     ])
 
     svc = sklearn.pipeline.Pipeline([
@@ -438,20 +447,21 @@ def run(dataset, resultdir):
     exp.addSearch('n_frequent_words', [10, 50, 100, 200, 300, 400, 500], include_default=False)
 
     exp.parameter('tokens_per_sample', 600)
+    # exp.addSearch('tokens_per_sample', [400, 600, 800], include_default=False)
     exp.addSearch('tokens_per_sample', [200, 400, 600, 800, 1000, 1200], include_default=False)
 
-    exp.parameter('max_n_of_pairs_per_class', 2000)
-    exp.addSearch('max_n_of_pairs_per_class', [500, 1000, 2000], include_default=False)
+    exp.parameter('max_n_of_pairs_per_class', 3000)
+    exp.addSearch('max_n_of_pairs_per_class', [100, 500, 1000, 2000, 3000, 4000], include_default=False)
 
-    exp.parameter('preprocessor', prep_gauss)
+    exp.parameter('preprocessor', prep_kde)
 
     # exp.parameter('classifier', ('dist_man', dist_ma))
     exp.parameter('classifier', ('bray_logit', logit_br))
-    exp.addSearch('classifier', [('dist_man', dist_ma), ('dist_bray', dist_br), ('man_logit', logit),
+    exp.addSearch('classifier', [('dist_man', dist_ma), ('dist_bray', dist_br), ('man_logit', man_logit),
                                  ('bray_logit', logit_br)], include_default=False)
 
-    exp.parameter('calibrator', lir.ScalingCalibrator(lir.KDECalibrator()))
-    exp.parameter('repeats', 10)
+    exp.parameter('calibrator', lir.ELUBbounder(lir.KDECalibrator()))
+    exp.parameter('repeats', 100)
 
     try:
         # exp.runDefaults()

@@ -4,7 +4,7 @@ from matplotlib import pyplot as plt
 import json
 import os
 
-# path_prefix = 'n_pairs_per_class'
+# path_prefix = 'max_n_of_pairs_per_class'
 # values = ['100', '2000', '4000']
 # path_prefix = 'n_frequent_words'
 # values = ['10', '200', '500']
@@ -13,11 +13,11 @@ values = ['200', '600', '1200']
 all_xplots = {}
 all_perc0 = {}
 all_perc1 = {}
-paper_notation = {'tokens_per_sample': 'l', 'n_frequent_words': 'f', 'n_pairs_per_class': 'n_{max}'}
+paper_notation = {'tokens_per_sample': 'l', 'n_frequent_words': 'f', 'max_n_of_pairs_per_class': 'n_{max}'}
 
 for v in values:
     keyval = str(v)
-    lrs_path = os.path.join('output', 'txt_files', f'{path_prefix}={v}.txt')
+    lrs_path = os.path.join('output', 'paper_1_rebuttal_1', f'{path_prefix}={v}.txt')
     with open(lrs_path) as f:
         data = json.load(f)
 
@@ -51,7 +51,7 @@ plt.axvline(x=0, color='k', ls=(0, (5, 10)), lw=0.2, alpha=0.4)
 plt.xlabel('Log likelihood ratio')
 plt.ylabel('Cumulative proportion')
 
-plt.savefig(os.path.join('output', 'paper_plots', f'{path_prefix}_tippet_plots_1.pdf'), bbox_inches='tight',
+plt.savefig(os.path.join('output', 'paper_1_rebuttal_1', f'{path_prefix}_tippet_plots.pdf'), bbox_inches='tight',
     pad_inches=0)
-plt.savefig(os.path.join('output', 'paper_plots', f'{path_prefix}_tippet_plots.png'))
+plt.savefig(os.path.join('output', 'paper_1_rebuttal_1', f'{path_prefix}_tippet_plots.png'))
 plt.close()
