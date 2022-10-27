@@ -32,25 +32,30 @@ for v in values:
     all_perc1[keyval] = (sum(i >= xplot for i in lr_1) / len(lr_1)) * 100
 
 plot_lines = []
+line_types_used = []
 line_types = [':', '-', '--', (0, (1, 10)), (0, (1, 1)), (0, (5, 10)), (0, (5, 1)), (0, (3, 10, 1, 10)),
               (0, (3, 5, 1, 5)), (0, (3, 1, 1, 1)), (0, (3, 5, 1, 5, 1, 5)), (0, (3, 10, 1, 10, 1, 10))]
 
 plt.rc('font', size=11.5)
 for i in range(len(values)):
     lw = 1.4 if (line_types[i % len(line_types)] == '-') and (i < len(line_types)) else 1.1
+    ld, = plt.plot(all_xplots[values[i]], all_perc1[values[i]], color='black', ls=line_types[i % len(line_types)],
+                   lw=lw)  # only there to have the correct color in the legend
     la, = plt.plot(all_xplots[values[i]], all_perc1[values[i]], color='b', ls=line_types[i % len(line_types)], lw=lw)
     lb, = plt.plot(all_xplots[values[i]], all_perc0[values[i]], color='m', ls=line_types[i % len(line_types)], lw=lw)
     plot_lines.append([la, lb])
+    line_types_used.append(ld)
 
 legend1 = plt.legend(plot_lines[1], ['LRs given $\mathregular{H_{ss}}$', 'LRs given $\mathregular{H_{ds}}$'], loc=3)
 text_legend2 = '$\mathregular{' + paper_notation[path_prefix] + '}$ = '
-plt.legend([line[0] for line in plot_lines], [text_legend2 + s for s in values], loc=1)
+# plt.legend([line[0] for line in plot_lines], [text_legend2 + s for s in values], loc=1)
+plt.legend([line for line in line_types_used], [text_legend2 + s for s in values], loc=1)
 plt.gca().add_artist(legend1)
 
 plt.axvline(x=0, color='k', ls=(0, (5, 10)), lw=0.2, alpha=0.4)
 plt.xlabel('Log likelihood ratio')
 plt.ylabel('Cumulative proportion')
-
+# plt.show()
 plt.savefig(os.path.join('output', 'paper_1_rebuttal_1', f'{path_prefix}_tippet_plots.pdf'), bbox_inches='tight',
     pad_inches=0)
 plt.savefig(os.path.join('output', 'paper_1_rebuttal_1', f'{path_prefix}_tippet_plots.png'))
