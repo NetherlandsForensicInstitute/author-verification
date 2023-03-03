@@ -5,7 +5,6 @@ import os
 import re
 import numpy as np
 import jiwer
-import itertools
 
 from nltk.tokenize import WhitespaceTokenizer
 from tqdm import tqdm
@@ -16,7 +15,7 @@ from boilerplate import fileio
 LOG = logging.getLogger(__name__)
 
 
-class FisherDataSource:
+class ASRFisherDataSource:
     def __init__(self, data, info, n_frequent_words=50, min_words_in_conv=50):
         self._n_freqwords = n_frequent_words  # number of frequent words
         self._data = data  # data location
@@ -92,26 +91,12 @@ def read_session(lines):
     :param lines: <class '_io.TextIOWrapper'>
     """
     lines_to_words = lines.read()
-    lines_to_words = re.sub('[0-9]*\.[0-9]*\ [0-9]*\.[0-9]*\ [AB]:', '', lines_to_words)
-    lines_to_words = jiwer.ToLowerCase()(lines_to_words)
+    lines_to_words = re.sub('[0-9]*\.[0-9]*\t[0-9]*\.[0-9]*\t', '', lines_to_words)
     lines_to_words = jiwer.ExpandCommonEnglishContractions()(lines_to_words)
-    # lines_to_words = re.sub('\(\(\s+\)\)', '', lines_to_words)  # -> <UNK>
-    # lines_to_words = re.sub('\(\([a-zUNK0-9\[\]\s\'\-_.,<>]*\)\)', '', lines_to_words)  # -> <GUESS>
-    lines_to_words = re.sub('\[\[[a-z]*\]\]', '', lines_to_words)  # -> <SKIP>
-    lines_to_words = re.sub('\[[a-z]*\]', '', lines_to_words)  # -> <SOUND>
-    lines_to_words = re.sub('\(\(', '', lines_to_words)  # remove (( and )) but keep text inside
-    lines_to_words = re.sub('\)\)', '', lines_to_words)
     lines_to_words = lines_to_words.replace('\n', ' ')
-    lines_to_words = lines_to_words.replace('~', '')
-    lines_to_words = lines_to_words.replace('*', '')
 
     tk = WhitespaceTokenizer()
     words = tk.tokenize(lines_to_words)
-
-    words = [re.sub(r'^\'', '', i) for i in words]  # remove ' from the beginning of a word
-    words = [re.sub(r'\'$', '', i) for i in words]  # remove ' from the end of a word
-    words = [j for i in words if (re.search(r'-$', i) is None) & (i != 'uh-huh')
-             for j in re.split('-', i)]  # remove - for splitting words
 
     return words
 
@@ -131,7 +116,7 @@ def compile_data(index_path, info_path):
     for filepath, digest in tqdm(list(fileio.load_hashtable(index_path).items()), desc='compiling data'):
 
         # there is some inconsistency with '-' and '_' between actual file names and in the info file
-        path_str = os.path.basename(filepath).replace('.txt', '').replace('-', '_')
+        path_str = os.path.basename(filepath).replace('.txt', '').replace('-', '_').lower()
         spk_conv_id = to_ids.get(path_str)[0] + '_in_' + path_str.replace('fe_03_', '').replace('_a', 'a'). \
             replace('_b', 'b') + '_by_' + to_ids.get(path_str)[1]  # spkid_in_convids_by_transcriber
 
@@ -144,7 +129,7 @@ def compile_data(index_path, info_path):
 
 
 def get_data(path, n_frequent_words):
-    ds = FisherDataSource(path, n_frequent_words=n_frequent_words)
+    ds = ASRFisherDataSource(path, n_frequent_words=n_frequent_words)
     return ds.get()
 
 
@@ -155,29 +140,12 @@ def get_frequent_words(speakers, n):
     :param speakers: dataset of speakers with the words they used
     :param n: int how many most frequent words will the output contain
     """
-    # freq_bbn = collections.defaultdict(int)
-    # freq_ldc = collections.defaultdict(int)
     freq = collections.defaultdict(int)
     for sp, sp_words in speakers.items():
         for word in sp_words:
-            if not re.compile("[a-z].*-$").match(word):  # exclude incomplete words
-                freq[word] += 1
-                # if bool(re.search('BBN', sp)):
-                #     freq_bbn[word] += 1
-                # else:
-                #     freq_ldc[word] += 1
-            else:
-                continue
+            freq[word] += 1
 
-    # freq_bbn = sorted(freq_bbn.items(), key=lambda x: x[1], reverse=True)
-    # freq_ldc = sorted(freq_ldc.items(), key=lambda x: x[1], reverse=True)
     freq = sorted(freq.items(), key=lambda x: x[1], reverse=True)
-
-    # word_bbn = [i[0] for i in freq_bbn[:n]]
-    # mfw = [item for item in freq_ldc[:n] if item[0] in word_bbn]
-
-    # return freq_ldc[:n]
-    # return mfw
     return freq[:n]
 
 

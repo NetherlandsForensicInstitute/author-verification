@@ -1,3 +1,6 @@
-data: fisher/fisher_trans.sha256  # frida/frida.sha256
+# for transcription_data, 'asr_output' is expected to be in the filename when asr transcriptions are used
+# else 'fisher' for manual transcriptions
+transcription_data: fisher/asr_output_with_times.sha256  # fisher/fisher_trans.sha256
 data_info: fisher/info.txt
+sv_scores: fisher/acoustic_scores/fisher_all_vs_all_scr.h5
 resultdir: output
