@@ -86,9 +86,19 @@ class KdeCdfTransformer(sklearn.base.TransformerMixin):
             if self._plot_cdf:
                 plt.close()
                 plt.figure()
-                # plt.plot(precomputed_values, cumulative_density)
-                plt.plot(precomputed_values, density)
-                plt.hist(feature_values, density=True)
+                plt.margins(x=0.01)
+                # plt.plot(precomputed_values, cumulative_density, color='orangered', label="KDE fit")
+                plt.plot(precomputed_values, density, color='orangered', label="KDE fit")
+                plt.hist(feature_values, bins=67, density=True, cumulative=False, color='lightgray')
+                # plt.plot([5, 5], [0, 0.342], '--', lw=1.5, color='blue')
+                # plt.plot([0, 5], [0.342, 0.342], '--', lw=1.5, color='blue')
+                # plt.plot([15, 15], [0, 0.945], ':', lw=1.5, color='blue')
+                # plt.plot([0, 15], [0.945, 0.945], ':', lw=1.5, color='blue')
+                # plt.plot([10, 10], [0, 0.7536], ':', lw=1, color='blue')
+                # plt.plot([0, 10], [0.7536, 0.7536], ':', lw=1, color='blue')
+                plt.xlabel('counts')
+                plt.ylabel('density')
+                plt.legend(loc='best')
                 plt.show()
                 pass
 
