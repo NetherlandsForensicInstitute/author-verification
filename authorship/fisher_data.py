@@ -44,10 +44,10 @@ class FisherDataSource:
         # build a dictionary of feature vectors
         speakers_conv = filter_speakers_text(speakers_wordlist, self._wordlist, self._min_words_in_conv)
 
-        # convert to X, y
-        X, y = to_vector_size(speakers_conv)
+        # convert to X, y, conv_ids
+        X, y, conv_ids = to_vector_size(speakers_conv)
 
-        return X, y
+        return X, y, conv_ids
 
     def __repr__(self):
         return f'data(freqwords={self._n_freqwords})'
@@ -155,30 +155,30 @@ def get_frequent_words(speakers, n):
     :param speakers: dataset of speakers with the words they used
     :param n: int how many most frequent words will the output contain
     """
-    freq_bbn = collections.defaultdict(int)
-    freq_ldc = collections.defaultdict(int)
-    # freq = collections.defaultdict(int)
+    # freq_bbn = collections.defaultdict(int)
+    # freq_ldc = collections.defaultdict(int)
+    freq = collections.defaultdict(int)
     for sp, sp_words in speakers.items():
         for word in sp_words:
             if not re.compile("[a-z].*-$").match(word):  # exclude incomplete words
-                # freq[word] += 1
-                if bool(re.search('BBN', sp)):
-                    freq_bbn[word] += 1
-                else:
-                    freq_ldc[word] += 1
+                freq[word] += 1
+                # if bool(re.search('BBN', sp)):
+                #     freq_bbn[word] += 1
+                # else:
+                #     freq_ldc[word] += 1
             else:
                 continue
 
-    freq_bbn = sorted(freq_bbn.items(), key=lambda x: x[1], reverse=True)
-    freq_ldc = sorted(freq_ldc.items(), key=lambda x: x[1], reverse=True)
-    # freq = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+    # freq_bbn = sorted(freq_bbn.items(), key=lambda x: x[1], reverse=True)
+    # freq_ldc = sorted(freq_ldc.items(), key=lambda x: x[1], reverse=True)
+    freq = sorted(freq.items(), key=lambda x: x[1], reverse=True)
 
-    word_bbn = [i[0] for i in freq_bbn[:n]]
-    mfw = [item for item in freq_ldc[:n] if item[0] in word_bbn]
+    # word_bbn = [i[0] for i in freq_bbn[:n]]
+    # mfw = [item for item in freq_ldc[:n] if item[0] in word_bbn]
 
     # return freq_ldc[:n]
-    return mfw
-    # return freq[:n]
+    # return mfw
+    return freq[:n]
 
 
 def filter_speakers_text(speakerdict, wordlist, min_words_in_conv):
@@ -217,13 +217,15 @@ def to_vector_size(speakers):
 
     :param speakers: the output of filter_texts_size
     """
-    labels = []
+    speaker_ids = []
+    conversation_ids = []
     features = []
     for label, texts in speakers.items():
-        labels.append(label.split('_')[0])
+        speaker_ids.append(label.split('_')[0])
+        conversation_ids.append(label.split('_')[2])
         features.append(texts)
 
-    return np.concatenate(features), np.array(labels)
+    return np.concatenate(features), np.array(speaker_ids), np.array(conversation_ids)
 
 # import confidence
 #

@@ -43,10 +43,10 @@ class ASRFisherDataSource:
         # build a dictionary of feature vectors
         speakers_conv = filter_speakers_text(speakers_wordlist, self._wordlist, self._min_words_in_conv)
 
-        # convert to X, y
-        X, y = to_vector_size(speakers_conv)
+        # convert to X, y, conv_ids
+        X, y, conv_ids = to_vector_size(speakers_conv)
 
-        return X, y
+        return X, y, conv_ids
 
     def __repr__(self):
         return f'data(freqwords={self._n_freqwords})'
@@ -185,13 +185,15 @@ def to_vector_size(speakers):
 
     :param speakers: the output of filter_texts_size
     """
-    labels = []
+    speaker_ids = []
+    conversation_ids = []
     features = []
     for label, texts in speakers.items():
-        labels.append(label.split('_')[0])
+        speaker_ids.append(label.split('_')[0])
+        conversation_ids.append(label.split('_')[2])
         features.append(texts)
 
-    return np.concatenate(features), np.array(labels)
+    return np.concatenate(features), np.array(speaker_ids), np.array(conversation_ids)
 
 # import confidence
 #
