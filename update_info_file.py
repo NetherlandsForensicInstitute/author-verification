@@ -37,10 +37,10 @@ metaB.columns = ['call_id', 'sig_grade', 'spk_id', 'sx.dl', 'phset', 'phtyp']
 
 meta = pd.concat([metaA, metaB], ignore_index=True)
 meta[['sx', 'dl']] = meta['sx.dl'].str.split(".", expand=True, )
-# meta.drop('sx.dl', axis=1, inplace=True)
+meta.drop('sx.dl', axis=1, inplace=True)
 
 # identify speakers with consistent metadata in terms of sex and language
-spk_all = meta[['spk_id', 'sx.dl']].drop_duplicates()
+spk_all = meta[['spk_id', 'sx', 'dl']].drop_duplicates()
 spk_keep = spk_all.drop_duplicates(subset=['spk_id'], keep=False)
 
 # those speakers with messy metadata
@@ -50,12 +50,14 @@ spk_mess = meta[~meta.spk_id.isin(spk_keep.spk_id)]
 spk_mess_to_clean = spk_mess.groupby(['spk_id'])[['sx', 'dl']].agg(pd.Series.mode)
 spk_mess_to_clean.reset_index(inplace=True)
 
-spk_mess_to_clean['problem'] = spk_mess_to_clean.apply(
-    lambda x: True if (len(x['sx']) > 1) | (len(x['dl']) > 1) else False, axis=1)
+spk_mess_to_clean['sx_unclear'] = spk_mess_to_clean.apply(lambda x: True if len(x['sx']) > 1 else False, axis=1)
+spk_mess_to_clean['dl_unclear'] = spk_mess_to_clean.apply(lambda x: True if len(x['dl']) > 1 else False, axis=1)
+spk_mess_to_clean.rename(columns={"sx": "sx_temp", "dl": "dl_temp"}, inplace=True)
 
-# when sx or dl is unclear then set sx and dl values to NaN
-meta['sx'] = np.where(meta.spk_id.isin(spk_mess_to_clean[spk_mess_to_clean.problem == True].spk_id), np.nan, meta.sx)
-meta['dl'] = np.where(meta.spk_id.isin(spk_mess_to_clean[spk_mess_to_clean.problem == True].spk_id), np.nan, meta.sx)
+meta = meta.merge(spk_mess_to_clean, on='spk_id', how='left')
+meta['sx'] = np.where(meta.sx_temp.isnull(), meta.sx, np.where(meta.sx_unclear==True, np.nan, meta.sx_temp))
+meta['dl'] = np.where((meta.dl_temp.isnull()) & (meta.dl!='u'), meta.dl,
+                      np.where((meta.dl_unclear==True) | (meta.dl=='u'), np.nan, meta.dl_temp))
 
 info_path = 'fisher/info_original.txt'
 info_df = pd.read_csv(info_path, sep="\t")
@@ -65,5 +67,7 @@ info_df.transcriber_id = info_df.transcriber_id.str.replace('/WordWave', '')
 info_df['call_id'] = info_df.file_name.str.replace('fe_03_', '').str.replace('_a', '').str.replace('_b', '')
 
 info_extra = pd.merge(info_df, meta, how='left', on=['call_id', 'spk_id'])
+info_extra.drop(['call_id', 'sx_temp', 'dl_temp', 'sx_unclear', 'dl_unclear'], axis=1, inplace=True)
+info_extra['count'] = info_extra.groupby('spk_id')['spk_id'].transform('size')
 
-print('woe')
+info_extra.to_csv('fisher/info.txt', index=None, sep='\t')

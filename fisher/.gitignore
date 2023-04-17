@@ -2,6 +2,7 @@
 /asr_output_with_times
 /acoustic_scores
 /fisher_metadata
+/predictions
 
 /data_for_streamlit.txt
 /fisher_for_exploration.json
