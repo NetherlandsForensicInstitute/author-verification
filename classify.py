@@ -271,9 +271,9 @@ def get_batch_simple(X, y, conv_ids, sx_dl, row_ids, col_ids, sv_scores, repeats
 
     for i in range(repeats):
 
-        authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i,
+        authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.2, random_state=i,
                                                                                stratify=sx_dl_uni)
-        # authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.2, random_state=i)
+        # authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
 
         # prep data for train
         X_subset_for_train = X[np.isin(y, authors_train), :]
@@ -324,7 +324,7 @@ def get_batch_simple(X, y, conv_ids, sx_dl, row_ids, col_ids, sv_scores, repeats
                                                               conv_ids_subset_for_train, row_ids, col_ids, sv_scores,
                                                               max_n_of_pairs_per_class)
         X_test, X_sv_test, y_test, pairs_test = get_pairs(X_subset_for_test, y_subset_for_test,
-                                                          conv_ids_subset_for_test, row_ids, col_ids, sv_scores, 4000)
+                                                          conv_ids_subset_for_test, row_ids, col_ids, sv_scores, 5000)
 
         yield X_train, X_sv_train, y_train, X_test, X_sv_test, y_test, pairs_test
 
