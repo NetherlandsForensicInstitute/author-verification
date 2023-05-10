@@ -14,10 +14,11 @@ from sklearn.metrics import roc_curve, confusion_matrix
 main_path = 'fisher/predictions'
 info_path = 'fisher/info.txt'
 
-exp = 1
-runs = ['exp0', 'exp1', 'exp2', 'exp3']
+exp = 7
+runs = ['exp0', 'exp1', 'exp2', 'exp3', 'exp4', 'exp5', 'exp6', 'exp7']
 filenames = ['_all_01fortest', '_all_stratified_01fortest', '_all_stratified_02fortest',
-             '_all_stratified_02fortest5000']
+             '_all_stratified_02fortest5000', '_F_stratified_01fortest', '_M_stratified_01fortest',
+             '_FA_stratified_01fortest', '_MA_stratified_01fortest']
 specific_run = runs[exp]
 update_files = False
 

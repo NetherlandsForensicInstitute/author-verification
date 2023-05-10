@@ -259,10 +259,10 @@ def get_pairs(X, y, conv_ids, row_ids, col_ids, sv_scores, sample_size):
 def get_batch_simple(X, y, conv_ids, sx_dl, row_ids, col_ids, sv_scores, repeats, max_n_of_pairs_per_class,
                      preprocessor):
 
-    # y1 = y[(sx_dl=='fo') | (sx_dl=='fa')]
-    # sx_dl1 = sx_dl[(sx_dl=='fo') | (sx_dl=='fa')]
-    # y1 = y[sx_dl=='fa']
-    # sx_dl1 = sx_dl[sx_dl=='fa']
+    # y1 = y[(sx_dl=='mo') | (sx_dl=='ma')]
+    # sx_dl1 = sx_dl[(sx_dl=='mo') | (sx_dl=='ma')]
+    # y1 = y[sx_dl=='ma']
+    # sx_dl1 = sx_dl[sx_dl=='ma']
     # authors, indices = np.unique(y1, return_index=True)
     # sx_dl_uni = sx_dl1[indices]
 
@@ -271,7 +271,7 @@ def get_batch_simple(X, y, conv_ids, sx_dl, row_ids, col_ids, sv_scores, repeats
 
     for i in range(repeats):
 
-        authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.2, random_state=i,
+        authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i,
                                                                                stratify=sx_dl_uni)
         # authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
 
@@ -324,7 +324,7 @@ def get_batch_simple(X, y, conv_ids, sx_dl, row_ids, col_ids, sv_scores, repeats
                                                               conv_ids_subset_for_train, row_ids, col_ids, sv_scores,
                                                               max_n_of_pairs_per_class)
         X_test, X_sv_test, y_test, pairs_test = get_pairs(X_subset_for_test, y_subset_for_test,
-                                                          conv_ids_subset_for_test, row_ids, col_ids, sv_scores, 5000)
+                                                          conv_ids_subset_for_test, row_ids, col_ids, sv_scores, 4000)
 
         yield X_train, X_sv_train, y_train, X_test, X_sv_test, y_test, pairs_test
 
