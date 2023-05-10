@@ -20,7 +20,7 @@ from sklearn.metrics import roc_curve, confusion_matrix
 main_path = 'frida/predictions'
 
 runs = ['exp1', 'exp2', 'exp3', 'exp4']
-specific_run = runs[3]
+specific_run = runs[1]
 
 
 # for most freq words

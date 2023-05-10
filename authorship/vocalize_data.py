@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import os
 import re
+import h5py
 
 
 class VocalizeDataSource:
@@ -43,7 +44,23 @@ class VocalizeDataSource:
 
 def compile_data(index_path, device):
     # load data and keep only the upper triangular matrix
-    df = pd.read_csv(index_path, index_col=0)
+    if index_path.endswith('.csv'):
+        df = pd.read_csv(index_path, index_col=0)
+    else:
+        with h5py.File(index_path, "r") as f:
+            # get keys
+            group_keys = list(f.keys())
+
+            # extract values
+            # the elements of enroll and test are numpy bytes so converted to str
+            enroll = list(f[group_keys[0]])
+            enroll = [a.decode('UTF-8') for a in enroll]  # score as np.array
+            scr = f[group_keys[1]][()]
+            test = list(f[group_keys[2]])
+            test = [a.decode('UTF-8') for a in test]
+
+        df = pd.DataFrame(scr, index=test, columns=enroll)
+
     df.sort_index(inplace=True, axis=0)
     df.sort_index(inplace=True, axis=1)
     df = df.where(np.triu(np.ones(df.shape), k=1).astype(bool))
@@ -68,10 +85,13 @@ def compile_data(index_path, device):
     elif device == 'SM58far':
         endings = ('2-4', '4-4')
     else:
-        raise Exception("vocalise_data: no device or incorrect device was given, possible values: telephone, "
+        raise Exception("acoustic scores: no device or incorrect device was given, possible values: telephone, "
                         "headset, SM58close, AKGC400BL, SM58far")
 
-    df = df[df['SP_1'].str.endswith(endings) & df['SP_2'].str.endswith(endings)]
+    if sum(df['SP_1'].str.endswith(endings)) > 0:
+        df = df[df['SP_1'].str.endswith(endings) & df['SP_2'].str.endswith(endings)]
+    else:
+        raise Exception("acoustic scores: no such device in data")
 
     # to match id pattern as it is in the transcriptions
     df[['SP_1', 'SP_2']] = df[['SP_1', 'SP_2']] \

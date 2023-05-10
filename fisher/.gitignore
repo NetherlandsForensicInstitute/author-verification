@@ -1,8 +1,8 @@
 \fisher_trans
 \asr_output_with_times
 \acoustic_scores
-\predictions
 \fisher_metadata
+\predictions
 
 fisher_selected_final_hyp.txt
 fisher_selected_final_ref.txt
@@ -10,4 +10,3 @@ data_for_streamlit.txt
 fisher_for_exploration.json
 info.txt
 info_original.txt
-

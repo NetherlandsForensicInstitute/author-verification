@@ -328,14 +328,14 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     """
 
     clf = lir.CalibratedScorer(classifier, calibrator)  # set up classifier and calibrator for authorship technique
-    voc_cal = lir.LogitCalibratorInProbabilityDomain()  # set up calibrator for vocalise output
+    voc_cal = lir.ELUBbounder(lir.LogitCalibratorInProbabilityDomain())  # set up calibrator for vocalise output
     # mfw_voc_clf = lir.CalibratedScorer(LogisticRegression(class_weight='balanced'),
     #                                    calibrator)  # set up logit as classifier and calibrator for a type of fusion
     mfw_voc_clf = lir.CalibratedScorer(SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced'),
                                        calibrator)
     features_clf = lir.CalibratedScorer(clf.scorer.steps[1][1],
                                         calibrator)  # set up classifier and calibrator for a type of fusion
-    biva_cal = lir.LogitCalibratorInProbabilityDomain()  # set up calibrator for a type of fusion
+    biva_cal = lir.ELUBbounder(lir.LogitCalibratorInProbabilityDomain())  # set up calibrator for a type of fusion
 
     ds = frida_data.FridaDataSource(dataset, n_frequent_words=n_frequent_words, min_num_of_words=min_num_of_words)
     X, y, conv_ids = ds.get()
@@ -637,7 +637,7 @@ def run(dataset, voc_data, resultdir):
     exp.addSearch('classifier', [('br_mlp', br_mlp), ('bray_logit', logit_br)],
                   include_default=False)
 
-    exp.parameter('calibrator', lir.LogitCalibrator())
+    exp.parameter('calibrator', lir.ELUBbounder(lir.LogitCalibrator()))
     exp.parameter('all_metrics', False)
     exp.parameter('repeats', 100)
 
