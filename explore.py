@@ -19,8 +19,8 @@ from sklearn.metrics import roc_curve, confusion_matrix
 
 main_path = 'frida/predictions'
 
-runs = ['exp1', 'exp2', 'exp3', 'exp4']
-specific_run = runs[1]
+runs = ['exp1', 'exp2', 'exp3', 'exp4', 'exp5']
+specific_run = runs[4]
 
 
 # for most freq words
@@ -114,6 +114,7 @@ def metrics_per_category(cols_to_group, df):
     """
     # counts
     cols = ['repeat'] + cols_to_group
+    # cols = cols_to_group
 
     long_df = pd.DataFrame()
     for col in ['lrs_mfw', 'lrs_voc', 'lrs_multi', 'lrs_comb_a', 'lrs_comb_b', 'lrs_feat', 'lrs_biva']:
@@ -136,7 +137,8 @@ def metrics_per_category(cols_to_group, df):
     counts = df.groupby(cols)['y'].agg([lambda x: sum(x == 0), lambda x: sum(x)]).reset_index()
     counts.rename(columns={'<lambda_0>': "total_ds", '<lambda_1>': "total_ss"}, inplace=True)
     counts = counts.groupby(cols_to_group).agg('mean').reset_index()
-    counts.drop(['repeat'], axis=1, inplace=True)
+    if 'repeat' in counts.columns:
+        counts.drop(['repeat'], axis=1, inplace=True)
 
     wide_df = pd.pivot(long_df, index=cols_to_group, columns=['method', 'metric'], values='value').reset_index()
     wide_df.columns = ['{}/{}'.format(x[0], str(x[1])) if x[1] != '' else x[0] for x in wide_df.columns]
