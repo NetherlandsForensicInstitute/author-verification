@@ -12,7 +12,6 @@ import seaborn as sns
 
 from sklearn.metrics import roc_curve, confusion_matrix
 
-
 # NOTE: the files: conversation_length.json, conversation_relative_frequencies.json, word_frequencies.json are changing
 # only if the frida data preprocessing changed (quite unlikely at the moment, so it is not taken into account)
 # NOTE 2: the metadata file stays the same
@@ -20,7 +19,7 @@ from sklearn.metrics import roc_curve, confusion_matrix
 main_path = 'frida/predictions'
 
 runs = ['exp1', 'exp2', 'exp3', 'exp4', 'exp5']
-specific_run = runs[4]
+specific_run = runs[1]
 
 
 # for most freq words
@@ -144,9 +143,9 @@ def metrics_per_category(cols_to_group, df):
     wide_df.columns = ['{}/{}'.format(x[0], str(x[1])) if x[1] != '' else x[0] for x in wide_df.columns]
     wide_df = counts.merge(wide_df, on=cols_to_group)
 
-    wide_df = wide_df[wide_df.columns[0:len(cols_to_group)+2].\
-    append(wide_df.columns[wide_df.columns.str.contains('cllr')]).\
-    append(wide_df.columns[wide_df.columns.str.contains('eer')])]
+    wide_df = wide_df[wide_df.columns[0:len(cols_to_group) + 2]. \
+        append(wide_df.columns[wide_df.columns.str.contains('cllr')]). \
+        append(wide_df.columns[wide_df.columns.str.contains('eer')])]
 
     return long_df, wide_df
 
@@ -167,17 +166,14 @@ if __name__ == '__main__':
     # num_mfw, perc_mfw = most_frequent(words)
 
     # length of the conversations (excl. words that are non-existing, incomplete, distorted or unclear)
-
-    conv_len_path = f'{main_path}/conversation_length_clean.csv'
-    if os.path.exists(conv_len_path):
-        conv_len = pd.read_csv(conv_len_path)
-    else:
-        conv_len = pd.read_json(f'{main_path}/conversation_length.json', orient="index")
-        conv_len.reset_index(inplace=True)
-        conv_len.rename(columns={'index': 'conv_id', 0: "num_words"}, inplace=True)
-        bins_words = [24, 385, 470, 554, 663, 1286]
-        names_words = ['0<n<=385', '385<n<=470', '470<n<=554', '554<n<=663', '663<n<=1285']
-        conv_len['num_words_range'] = pd.cut(conv_len['num_words'], bins_words, labels=names_words).astype('O')
+    conv_len = pd.read_json(f'{main_path}/conversation_length.json', orient="index")
+    conv_len.reset_index(inplace=True)
+    conv_len.rename(columns={'index': 'conv_id', 0: "num_words"}, inplace=True)
+    bins_words = [24, 408, 512, 631, 1286]
+    names_words = ['0<n<=408', '408<n<=512', '512<n<=631', '631<n<=1285']
+    # bins_words = [24, 385, 470, 554, 663, 1286]
+    # names_words = ['0<n<=385', '385<n<=470', '470<n<=554', '554<n<=663', '663<n<=1285']
+    conv_len['num_words_range'] = pd.cut(conv_len['num_words'], bins_words, labels=names_words).astype('O')
 
     spks = list(set([conv_id[:(len(conv_id) - 2)] for conv_id in conv_len.conv_id]))
 
@@ -250,7 +246,7 @@ if __name__ == '__main__':
 
         for key in per_repeat.keys():
             train_same, train_diff = sum(np.array(per_repeat[key]['train']) == 1), \
-                                     sum(np.array(per_repeat[key]['train']) == 0)
+                sum(np.array(per_repeat[key]['train']) == 0)
             test_same, test_diff = sum(np.array(per_repeat[key]['y']) == 1), sum(np.array(per_repeat[key]['y']) == 0)
             temp_num_df = pd.DataFrame({'repeat': key, 'train_same': train_same, 'train_diff': train_diff,
                                         'train_all': len(per_repeat[key]['train']), 'test_same': test_same,
@@ -276,8 +272,10 @@ if __name__ == '__main__':
         # add info on predictions
         predictions['location_A'] = np.where(predictions['conv_A'].str.endswith(('2', '4')), 'indoor', 'outdoor')
         predictions['environment_A'] = np.where(predictions['conv_A'].str.endswith(('2', '6')), 'quiet', 'noisy')
+        predictions['loc_env_A'] = predictions['location_A'] + ' - ' + predictions['environment_A']
         predictions['location_B'] = np.where(predictions['conv_B'].str.endswith(('2', '4')), 'indoor', 'outdoor')
         predictions['environment_B'] = np.where(predictions['conv_B'].str.endswith(('2', '6')), 'quiet', 'noisy')
+        predictions['loc_env_B'] = predictions['location_B'] + ' - ' + predictions['environment_B']
         predictions = predictions.merge(conv_len.add_suffix('_A'), left_on='conv_A', right_on='conv_id_A')
         predictions = predictions.merge(conv_len.add_suffix('_B'), left_on='conv_B', right_on='conv_id_B')
         predictions = predictions.merge(spk_metadata.add_suffix('_A'), left_on='spk_A', right_on='spk_id_A')
@@ -286,6 +284,29 @@ if __name__ == '__main__':
                                                 predictions['location_A'], 'indoor vs outdoor')
         predictions['spk_environments'] = np.where(predictions['environment_A'] == predictions['environment_B'],
                                                    predictions['environment_A'], 'quiet vs noisy')
+        conditions = [predictions['loc_env_A'] == predictions['loc_env_B'],
+                      (predictions['location_A'] == predictions['location_B']) &
+                      (predictions['environment_A'] != predictions['environment_B']),
+                      (predictions['location_A'] != predictions['location_B']) &
+                      (predictions['environment_A'] == predictions['environment_B']),
+                      (predictions['location_A'] != predictions['location_B']) &
+                      (predictions['environment_A'] != predictions['environment_B'])
+                      ]
+        choices = [predictions['loc_env_A'], predictions['location_A'] + ' - quiet vs noisy',
+                   'indoor vs outdoor - ' + predictions['environment_A'],
+                   'next step']
+        predictions['spk_loc_env'] = np.select(conditions, choices, np.nan)
+
+        conditions2 = [predictions['spk_loc_env'] != 'next step',
+                       predictions['location_A'] == 'indoor',
+                       predictions['location_B'] == 'indoor'
+                       ]
+        choices2 = [predictions['spk_loc_env'],
+                    'indoor vs outdoor - ' + predictions['environment_A'] + ' vs ' + predictions['environment_B'],
+                    'indoor vs outdoor - ' + predictions['environment_B'] + ' vs ' + predictions['environment_A']
+                    ]
+        predictions['spk_loc_env'] = np.select(conditions2, choices2, np.nan)
+
         predictions.drop(['spk_id_A', 'spk_id_B', 'conv_id_A', 'conv_id_B'], axis=1, inplace=True)
         predictions['spk_num_words'] = predictions[['num_words_range_A', 'num_words_range_B']].values.tolist()
         predictions['spk_num_words'] = predictions['spk_num_words'].apply(sorted)
@@ -338,7 +359,6 @@ if __name__ == '__main__':
         res_df.columns = [f'{y}_{x}' for x, y in res_df.columns]
         res_df = res_df.reindex(['mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat', 'biva'])
         res_df = res_df.reset_index()
-
 
 # ----------------------------------------------------------------------------------------------------------------------
 st.set_page_config(layout="wide")
@@ -416,24 +436,31 @@ st.header('Parameter settings')
 cols = st.columns(3)
 cols[0].write('For VOCALISE:')
 cols[0].text('recording device = ' + param['recording_device'] + '\n'
-             'calibrator =  ' + param['voc_calibrator'] + '\n'
-             'preprocessor used =  ' + param['voc_preprocessor'])
+                                                                 'calibrator =  ' + param['voc_calibrator'] + '\n'
+                                                                                                              'preprocessor used =  ' +
+             param['voc_preprocessor'])
 
 cols[1].write('For authorship:')
 cols[1].text('num of frequent words = ' + str(param['num_mfw']) + '\n'
-             'min num of words in a conversation = ' + str(param['min_num_words']) + '\n'
-             'preprocessor used = ' + param['mfw_preprocessor'] + '\n'
-             'distance = ' + param['mwf_distance'] + '\n'
-             'classifier = ' + param['mwf_classifier'] + '\n'
-             'calibrator = ' + param['mwf_calibrator'])
+                                                                  'min num of words in a conversation = ' + str(
+    param['min_num_words']) + '\n'
+                              'preprocessor used = ' + param['mfw_preprocessor'] + '\n'
+                                                                                   'distance = ' + param[
+                 'mwf_distance'] + '\n'
+                                   'classifier = ' + param['mwf_classifier'] + '\n'
+                                                                               'calibrator = ' + param[
+                 'mwf_calibrator'])
 
 cols[2].write('General:')
 cols[2].text('max num of pairs draw per class (train) = ' + str(param['max_pairs_per_class_train']) + '\n'
-             'max num of pairs draw per class (test) = ' + str(param['max_pairs_per_class_test']) + '\n'
-             'perc of speakers used for test set (from the 223) = ' + str(param['test_speakers_perc']) + '% \n'
-             'repeats = ' + str(param['repeats']) + '\n'
-             'fusion classifier = ' + param['fusion_classifier'] + '\n'
-             'fusion calibrator = ' + param['fusion_calibrator'] + '')
+                                                                                                      'max num of pairs draw per class (test) = ' + str(
+    param['max_pairs_per_class_test']) + '\n'
+                                         'perc of speakers used for test set (from the 223) = ' + str(
+    param['test_speakers_perc']) + '% \n'
+                                   'repeats = ' + str(param['repeats']) + '\n'
+                                                                          'fusion classifier = ' + param[
+                 'fusion_classifier'] + '\n'
+                                        'fusion calibrator = ' + param['fusion_calibrator'] + '')
 
 st.write('We note that there are sessions with no telephone recordings. The transcriptions of those sessions were '
          'excluded from the analysis.')
@@ -494,14 +521,16 @@ for plot_type in plots:
             else:
                 col[key].write('no plot available')
 
-
 # ---------
 st.subheader('Error analysis')
 
 # , orient="h"
+env_loc_for_plot_new, table_env_loc_new = metrics_per_category(['spk_loc_env'], predictions)
+st.write(table_env_loc_new)
+
 env_loc_for_plot, table_env_loc = metrics_per_category(['spk_locations', 'spk_environments'], predictions)
 
-loc_env_chart = alt.Chart(env_loc_for_plot[(env_loc_for_plot.method != 'mfw') & (env_loc_for_plot.metric != 'eer')]).\
+loc_env_chart = alt.Chart(env_loc_for_plot[(env_loc_for_plot.method != 'mfw') & (env_loc_for_plot.metric != 'eer')]). \
     mark_bar().encode(
     x="value",
     y=alt.Y("method", sort=['mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat', 'biva']),
@@ -517,7 +546,7 @@ st.write(table_env_loc)
 words_for_plot, table_words = metrics_per_category(['spk_num_words'], predictions)
 words_diff_for_plot, table_words_diff = metrics_per_category(['words_diff_range'], predictions)
 
-words_chart = alt.Chart(words_for_plot[(words_for_plot.method != 'mfw') & (words_for_plot.metric != 'eer')]).\
+words_chart = alt.Chart(words_for_plot[(words_for_plot.method != 'mfw') & (words_for_plot.metric != 'eer')]). \
     mark_bar().encode(
     x="value",
     y=alt.Y("method", sort=['mfw', 'voc', 'multi', 'comb_a', 'comb_b', 'feat', 'biva']),
@@ -538,11 +567,8 @@ cols = st.columns(2)
 cols[0].altair_chart(words_chart)
 cols[1].altair_chart(words_chart_diff)
 
-
 st.write(table_words)
 st.write(table_words_diff)
-
-
 
 # st.pyplot(sns.catplot(x="spk_environments", y="value", hue="method", col='spk_locations',
 #                       data=env_loc_for_plot[env_loc_for_plot['metric'] == 'cllr'],kind="bar"))
