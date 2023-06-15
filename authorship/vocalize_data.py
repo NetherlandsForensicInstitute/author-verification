@@ -72,10 +72,12 @@ def compile_data(index_path, device):
     conv_id_pattern = "(SP[0-9a]{3,4}-[12]-[1-8]-[1-5])"
     df[['SP_1', 'SP_2']] = df[['SP_1', 'SP_2']].apply(lambda x: x.str.extract(conv_id_pattern, expand=False))
 
-    # in indoor sessions (1 to 4) the telephone is dev 5, in outdoors sessions (so 5 to 8) the telephone is dev 2
+    # in edited version of the files: in indoor sessions (1 to 4) the telephone is dev 5 and
+    # in outdoors sessions (so 5 to 8) the telephone is dev 2
+    # in raw version of the files: the telephone is always dev 5
     # only the sessions with iphone (so 2, 4, 6, and 8) were transcribed, so we drop the rest
     if device == 'telephone':
-        endings = ('2-5', '4-5', '6-2', '8-2')
+        endings = ('2-5', '4-5', '6-2', '8-2', '6-5', '8-5')
     elif device == 'headset':
         endings = ('2-1', '4-1', '6-1', '8-1')
     elif device == 'SM58close':

@@ -1,4 +1,4 @@
 data: frida/frida.sha256
-vocalise_data: frida/vocalize_results/frida_headphone_telephone_scr.h5
+vocalise_data: frida/vocalize_results/frida_headphone_telephone_raw_scr.h5
 #vocalise_data: frida/vocalize_results/20210628_vocalise_output_Xvector_PLDA_all_edits.csv
 resultdir: output
