@@ -75,7 +75,7 @@ def compile_data(index_path, device):
     # in indoor sessions (1 to 4) the telephone is dev 5, in outdoors sessions (so 5 to 8) the telephone is dev 2
     # only the sessions with iphone (so 2, 4, 6, and 8) were transcribed, so we drop the rest
     if device == 'telephone':
-        endings = ('2-5', '4-5', '6-2', '8-2')
+        endings = ('2-5', '4-5', '6-2', '8-2', '6-5', '8-5')
     elif device == 'headset':
         endings = ('2-1', '4-1', '6-1', '8-1')
     elif device == 'SM58close':

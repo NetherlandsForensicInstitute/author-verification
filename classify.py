@@ -331,6 +331,8 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
     voc_cal = lir.ELUBbounder(lir.LogitCalibratorInProbabilityDomain())  # set up calibrator for vocalise output
     # mfw_voc_clf = lir.CalibratedScorer(LogisticRegression(class_weight='balanced'),
     #                                    calibrator)  # set up logit as classifier and calibrator for a type of fusion
+    # mfw_voc_clf = lir.CalibratedScorer(SVC(gamma='scale', kernel='rbf', probability=True, class_weight='balanced'),
+    #                                    calibrator)
     mfw_voc_clf = lir.CalibratedScorer(SVC(gamma='scale', kernel='linear', probability=True, class_weight='balanced'),
                                        calibrator)
     features_clf = lir.CalibratedScorer(clf.scorer.steps[1][1],
