@@ -428,6 +428,19 @@ def evaluate_samesource(desc, dataset, voc_data, device, n_frequent_words, max_n
         X_test_onevector = np.column_stack((X_test_onevector, X_voc_test_norm.T))
         lrs_features.append(features_clf.predict_lr(X_test_onevector))
 
+        # same_source = 0
+        # acc_plot = X_voc_train[y_train == same_source]
+        # mfw_plot = lir.util.to_log_odds(mfw_scores_train[y_train == same_source])
+        # plt.plot(acc_plot, mfw_plot, 'o', alpha=0.1)
+        #
+        # # obtain m (slope) and b(intercept) of linear regression line
+        # m, b = np.polyfit(acc_plot, mfw_plot, 1)
+        #
+        # # add linear regression line to scatterplot
+        # plt.plot(mfw_plot, m * mfw_plot + b)
+        # plt.show()
+
+
         # per class, fit bivariate normal distribution on the mfw scorers and voc output then calibrate (for m4)
         # mfw score to log odds to match the voc scores
         X_comb_train_m4 = np.vstack((lir.util.to_log_odds(mfw_scores_train), X_voc_train)).T

@@ -19,7 +19,7 @@ from sklearn.metrics import roc_curve, confusion_matrix
 main_path = 'frida/predictions'
 
 runs = ['exp1', 'exp2', 'exp3', 'exp4', 'exp5', 'exp6', 'exp7', 'exp8']
-specific_run = runs[8-1]
+specific_run = runs[2-1]
 
 
 # for most freq words
@@ -484,6 +484,20 @@ st.pyplot(sns.catplot(x="method", y="value", col='metric', data=metrics_per_repe
 
 # ---------
 st.subheader('Checking the log10LRs')
+
+same_source = 0
+acc_plot = np.log10(predictions.lrs_voc[predictions.y==same_source])
+mfw_plot = np.log10(predictions.lrs_mfw[predictions.y==same_source])
+plt.plot(acc_plot, mfw_plot, 'o' , alpha=0.1)
+
+#obtain m (slope) and b(intercept) of linear regression line
+m, b = np.polyfit(acc_plot, mfw_plot, 1)
+
+#add linear regression line to scatterplot
+plt.plot(mfw_plot, m*mfw_plot+b)
+plt.show()
+
+
 
 # st.write('Percentiles per method (all runs)')
 # perc_df = pd.DataFrame([percentiles_for_df('mfw', predictions.lrs_mfw),
