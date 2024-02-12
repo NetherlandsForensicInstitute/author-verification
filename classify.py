@@ -601,12 +601,12 @@ def run(dataset, voc_data, resultdir):
     exp.parameter('voc_data', voc_data)
     exp.parameter('device', 'telephone')  # options: telephone, headset, SM58close, AKGC400BL, SM58far
 
-    exp.parameter('min_num_of_words', 50)
+    exp.parameter('min_num_of_words', 1)
 
     exp.parameter('n_frequent_words', 200)
     exp.addSearch('n_frequent_words', [100, 200, 300], include_default=False)
 
-    exp.parameter('max_n_of_pairs_per_class', 4000)
+    exp.parameter('max_n_of_pairs_per_class', 6000)
     exp.addSearch('max_n_of_pairs_per_class', [2500, 3000, 4000], include_default=False)
 
     exp.parameter('preprocessor', prep_gauss)
