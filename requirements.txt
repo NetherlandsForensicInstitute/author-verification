@@ -4,8 +4,7 @@ matplotlib
 numpy
 nltk
 scipy
-sklearn
+scikit-learn
 tqdm
 pandas
 
-scikit-learn

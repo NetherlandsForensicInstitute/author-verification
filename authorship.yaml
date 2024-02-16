@@ -1,4 +1,25 @@
-data: frida/frida.sha256
-vocalise_data: frida/vocalize_results/frida_headphone_telephone_raw_scr.h5
-#vocalise_data: frida/vocalize_results/20210628_vocalise_output_Xvector_PLDA_all_edits.csv
-resultdir: output
+data:
+  path: frida/Transcripties  # data location
+  name: frida  # data name
+  ground_truth: True  # manual transcriptions (True) or asr output (False)
+  extra_info: None  # addition file to process data (for fisher)
+
+data_process:
+  exclude_fillers: True  # to remove filler sounds such as uh huh
+  expand_contractions: False  # to expand contractions, e.g., we're to we are
+  n_frequent_words: 200  # num of most freq words to consider as features
+
+resultdir: output  # where to save file with results (file name is generated based on above info)
+
+#data:
+#  path: /mnt/matylda3/xsergie00/pycharm/PycharmProjects/startingwithwhisper/data/asr_transcriptions/frida_asr_transcriptions/frida_whisper_small  # data location
+#  name: frida  # data name
+#  ground_truth: False  # manual transcriptions (True) or asr output (False)
+#  extra_info: None  # addition file to process data (for fisher)
+#
+#data_process:
+#  exclude_fillers: True  # to remove filler sounds such as uh huh
+#  expand_contractions: False  # to expand contractions, e.g., we're to we are
+#  n_frequent_words: 200  # num of most freq words to consider as features
+#
+#resultdir: output  # where to save file with results (file name is generated based on above info)
