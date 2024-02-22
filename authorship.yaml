@@ -1,21 +1,22 @@
-data:
-  path: frida/Transcripties  # data location
-  name: frida  # data name
-  ground_truth: True  # manual transcriptions (True) or asr output (False)
-  extra_info: None  # addition file to process data (for fisher)
-
-data_process:
-  exclude_fillers: True  # to remove filler sounds such as uh huh
-  expand_contractions: False  # to expand contractions, e.g., we're to we are
-  n_frequent_words: 200  # num of most freq words to consider as features
-
-resultdir: output  # where to save file with results (file name is generated based on above info)
-
 #data:
-#  path: /mnt/matylda3/xsergie00/pycharm/PycharmProjects/startingwithwhisper/data/asr_transcriptions/frida_asr_transcriptions/frida_whisper_small  # data location
+#  path: frida/Transcripties  # data location
+#  name: frida  # data name
+#  ground_truth: True  # manual transcriptions (True) or asr output (False)
+#  extra_info:  # addition file to process data (for fisher)
+#
+#data_process:
+#  exclude_fillers: False  # to remove filler sounds such as uh huh
+#  expand_contractions: False  # to expand contractions, e.g., we're to we are
+#  n_frequent_words: 200  # num of most freq words to consider as features
+#
+#resultdir: output  # where to save file with results (file name is generated based on above info)
+
+#--------------------------------------------------------
+#data:
+#  path: /mnt/matylda3/xsergie00/pycharm/PycharmProjects/startingwithwhisper/data/asr_transcriptions/frida_asr_transcriptions/frida_whisper_medium_2  # data location
 #  name: frida  # data name
 #  ground_truth: False  # manual transcriptions (True) or asr output (False)
-#  extra_info: None  # addition file to process data (for fisher)
+#  extra_info:  # addition file to process data (for fisher)
 #
 #data_process:
 #  exclude_fillers: True  # to remove filler sounds such as uh huh
@@ -23,3 +24,31 @@ resultdir: output  # where to save file with results (file name is generated bas
 #  n_frequent_words: 200  # num of most freq words to consider as features
 #
 #resultdir: output  # where to save file with results (file name is generated based on above info)
+
+#--------------------------------------------------------
+#data:
+#  path: /mnt/matylda6/rohdin/projects/roxanne/nfi_collaboration/FISHER/fisher_trans  # data location
+#  name: fisher  # data name
+#  ground_truth: True  # manual transcriptions (True) or asr output (False)
+#  extra_info: fisher/info_extra.txt  # addition file to process data (for fisher)
+#
+#data_process:
+#  exclude_fillers: False  # to remove filler sounds such as uh huh
+#  expand_contractions: False  # to expand contractions, e.g., we're to we are
+#  n_frequent_words: 500  # num of most freq words to consider as features
+#
+#resultdir: output  # where to save file with results (file name is generated based on above info)
+
+#--------------------------------------------------------
+data:
+  path: /mnt/matylda6/rohdin/research/authorship/asr_transcriptions_fisher_mono_spk_wise_small-en  # data location
+  name: fisher  # data name
+  ground_truth: False  # manual transcriptions (True) or asr output (False)
+  extra_info: fisher/info_extra.txt  # addition file to process data (for fisher)
+
+data_process:
+  exclude_fillers: True  # to remove filler sounds such as uh huh
+  expand_contractions: False  # to expand contractions, e.g., we're to we are
+  n_frequent_words: 500  # num of most freq words to consider as features
+
+resultdir: output  # where to save file with results (file name is generated based on above info)
