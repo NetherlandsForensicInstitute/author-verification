@@ -18,12 +18,13 @@ LOG = logging.getLogger(__name__)
 
 
 class DataSource:
-    def __init__(self, data_path, data_name, ground_truth, extra_info=None, remove_filler_sounds=False,
-                 expand_contractions=False, n_frequent_words=200, min_num_of_words=1):
+    def __init__(self, data_path, data_name, ground_truth, filter_conv_ids=None, extra_info=None,
+                 remove_filler_sounds=False, expand_contractions=False, n_frequent_words=200, min_num_of_words=1):
 
         self._data_path = data_path
         self._data_name = data_name
         self._ground_truth = ground_truth
+        self._filter_conv_ids = filter_conv_ids
         self._extra_info = extra_info
         self._remove_filler_sounds = remove_filler_sounds
         self._expand_contractions = expand_contractions
@@ -41,6 +42,12 @@ class DataSource:
         filename = (base_name + '_gt_' + str(self._ground_truth)[0] +
                     '_rm_fillers_' + str(self._remove_filler_sounds)[0] +
                     '_exp_cont_' + str(self._expand_contractions)[0])
+
+        if self._filter_conv_ids is not None:
+            filename = filename + '_filtered'
+        else:
+            filename = filename + '_all'
+
         return f'.cache/{filename}.json'
 
     def get(self):
@@ -50,7 +57,8 @@ class DataSource:
             LOG.debug(f'using cache file: {speakers_path}')
             speakers_wordlist = load_data(speakers_path)
         else:
-            speakers_wordlist = compile_data(self._data_name, self._data_path, self._ground_truth, self._extra_info,
+            speakers_wordlist = compile_data(self._data_name, self._data_path, self._ground_truth,
+                                             self._filter_conv_ids, self._extra_info,
                                              self._remove_filler_sounds, self._expand_contractions)
             store_data(speakers_path, speakers_wordlist)
 
@@ -61,7 +69,7 @@ class DataSource:
         speakers_conv = filter_texts(speakers_wordlist, wordlist, self._min_num_of_words)
 
         # convert to X, y (= spk id) but keep the conversation id
-        X, y, conv_ids = to_vector_size(speakers_conv, self._data_name)
+        X, y, conv_ids = to_vector_size(speakers_conv)
 
         return X, y, conv_ids
 
@@ -139,7 +147,7 @@ def read_session(lines, data_name, ground_truth, remove_filler_words=False, expa
             words_to_remove = ['xxx', 'ggg', 'gggggg', 'vvv']
 
             if remove_filler_words:
-                words_to_remove.extend(['a', 'e', 'oo', 'oe', 'aa', 'ee', 'mm', 'he', 'eh', 'uh', 'hm', 'jo',
+                words_to_remove.extend(['a', 'e', 'o', 'oo', 'oe', 'aa', 'ee', 'mm', 'he', 'eh', 'uh', 'hm', 'jo',
                                         'uhu', 'uhm', 'eeh', 'nah', 'joo', 'ach', 'hoo', 'woo'])
 
         elif data_name == 'fisher':
@@ -148,16 +156,14 @@ def read_session(lines, data_name, ground_truth, remove_filler_words=False, expa
             lines_to_words = re.sub('\[[a-zA-Z]*\]', '', lines_to_words)  # -> <SOUND>
             lines_to_words = re.sub('\(\(', '', lines_to_words)  # remove (( and )) but keep text inside
             lines_to_words = re.sub('\)\)', '', lines_to_words)
-            lines_to_words = re.sub('[a-zA-Z]*- ', ' ', lines_to_words)
             lines_to_words = lines_to_words.replace('\n', ' ')
-            lines_to_words = lines_to_words.replace('-', ' ')  # so uh-huh is uh huh, in this point because
-            # words like a three-year-old and
-            # son-in-law are transcribed with -
-            # between the words
+            lines_to_words = re.sub('uh-huh', ' uhhuh ', lines_to_words)
+            lines_to_words = lines_to_words.replace('-', ' ')  # words like a three-year-old and
+            # son-in-law are transcribed with '-' between the words
 
             if remove_filler_words:
-                words_to_remove.extend(['er', 'eh', 'ah', 'hm', 'ha', 'um', 'em', 'uh', 'oh', 'mm', 'ya', 'hmm', 'ohh',
-                                        'huh', 'gee', 'mhm', 'nah', 'ahem', 'jeeze'])
+                words_to_remove.extend(['er', 'eh', 'ah', 'hm', 'ha', 'um', 'em', 'uh', 'oh', 'mm', 'ya', 'hmm', 'ooh',
+                                        'huh', 'hum', 'gee', 'mhm', 'nah', 'ahem', 'jeeze', 'uhhuh'])
 
             if expand_contractions:
                 lines_to_words = jiwer.ExpandCommonEnglishContractions()(lines_to_words)
@@ -175,13 +181,14 @@ def read_session(lines, data_name, ground_truth, remove_filler_words=False, expa
             if remove_filler_words:
                 words_to_remove.extend(['a', 'e', 'o', 'z', 'he', 'hé', 'hè', 'uh', 'oh', 'ah', 'eh', 'ha', 'hm', 'jo',
                                         'yo', 'ach', 'huh', 'hmm', 'ehh', 'ehm', 'uhm', 'eee', 'joh', 'oei', 'oeh',
-                                        'mmhmm'])
+                                        'peoh', 'mmhmm'])
 
         elif data_name == 'fisher':
-            lines_to_words = lines_to_words.replace('ok', 'okay')
+            lines_to_words = lines_to_words.replace('ok', 'okay').replace('$', 'dollars ')
 
             if remove_filler_words:
-                words_to_remove.extend(['oh', 'um', 'uh', 'mm', 'ah', 'ha', 'huh', 'hmm', 'uhhuh', 'mmhmm'])
+                words_to_remove.extend(['er', 'oh', 'um', 'uh', 'mm', 'ah', 'hm', 'ha', 'mhm', 'huh', 'hmm', 'uhhuh',
+                                        'mmhmm', 'jeeze'])
 
             if expand_contractions:
                 lines_to_words = jiwer.ExpandCommonEnglishContractions()(lines_to_words)
@@ -199,7 +206,7 @@ def read_session(lines, data_name, ground_truth, remove_filler_words=False, expa
     return lines_to_words[0]
 
 
-def compile_data(data_name, index_path, ground_truth, info_path=None, remove_filler_words=False,
+def compile_data(data_name, index_path, ground_truth, filter_conv_ids=None, info_path=None, remove_filler_words=False,
                  expand_contractions=False):
     """
     it takes a path to folder. It loops through all the .txt files in the folder and returns a dictionary
@@ -226,18 +233,29 @@ def compile_data(data_name, index_path, ground_truth, info_path=None, remove_fil
 
     conversations = collections.defaultdict(list)  # create empty dictionary list
     files = glob.glob(os.path.join(index_path, "*.txt"))
+
+    files_with = []
+    if filter_conv_ids is not None:
+        files_of_interest = glob.glob(os.path.join(filter_conv_ids, "*.txt"))
+        if data_name == 'frida':
+            files_with = [os.path.basename(i).split('-')[0] + '_' + os.path.basename(i).split('-')[1] +
+                          os.path.basename(i).split('-')[2] for i in files_of_interest]
+        elif data_name == 'fisher':
+            tmp = [(os.path.basename(i).replace('fe_03_', '').replace('.txt', '')
+                    .replace('_a', 'a').replace('-a', 'a')
+                    .replace('_b', 'b').replace('-b', 'b')) for i in files_of_interest]
+            files_with = [to_ids.get(i)[0] + '_' + i + '_' + to_ids.get(i)[1] for i in tmp]
+
     file_to_check = None
 
     for filepath in tqdm(files):
         path_str = os.path.basename(filepath)
 
         if data_name == 'frida':
-            # conversation id from SPXXX?-S-D-N.txt (for ref) or SPXXX?-S-D-N_raw.txt (for asr) to SPXXXSD
+            # conversation id from SPXXX?-S-D-N.txt (for ref) or SPXXX?-S-D-N_raw.txt (for asr) to SPXXX?_SD
             # where '?' is most of the times '' but sometimes is 'a'
-            if ground_truth:
-                conv_id = path_str[:len(path_str) - 6].replace('-', '')
-            else:
-                conv_id = path_str[:len(path_str) - 10].replace('-', '')
+            parts = path_str.split('-')
+            conv_id = parts[0] + '_' + parts[1] + parts[2]
 
         elif data_name == 'fisher':
             # from fe_03_XXXXX{-_}{ab}.txt to XXXXX{ab} (for ref it is '-' and for asr is '_')
@@ -245,24 +263,25 @@ def compile_data(data_name, index_path, ground_truth, info_path=None, remove_fil
                              .replace('_a', 'a').replace('-a', 'a')
                              .replace('_b', 'b').replace('-b', 'b'))
 
-            conv_id = to_ids.get(file_to_check)[0] + '_' + file_to_check
+            conv_id = to_ids.get(file_to_check)[0] + '_' + file_to_check + '_' + to_ids.get(file_to_check)[1]
         else:
             conv_id = 'error'
             print('unexpected data name')
             break
 
         with open(filepath, "r") as f:
-
-            if data_name == 'fisher' and (to_ids.get(file_to_check)[2] == '' or to_ids.get(file_to_check)[3] == '1'):
-                continue
-            else:
-                text = read_session(f, data_name, ground_truth, remove_filler_words, expand_contractions)
-                if len(text) > 0:  # to exclude empty files
-                    conversations[conv_id] = text
-                # if 'ewa' in text:
-                #     print(conv_id)
-                # else:
-                #     print('empty file = ' + conv_id)
+            if conv_id in files_with:
+                if data_name == 'fisher' and (to_ids.get(file_to_check)[2] == ''
+                                              or to_ids.get(file_to_check)[3] == '1'):
+                    continue
+                else:
+                    text = read_session(f, data_name, ground_truth, remove_filler_words, expand_contractions)
+                    if len(text) > 0:  # to exclude empty files
+                        conversations[conv_id] = text
+                    # if 'ewa' in text:
+                    #     print(conv_id)
+                    # else:
+                    #     print('empty file = ' + conv_id)
 
     return conversations
 
@@ -306,7 +325,7 @@ def filter_texts(conversations, wordlist, min_num_of_words):
     return filtered
 
 
-def to_vector_size(speakers, data_name):
+def to_vector_size(speakers):
     """
     returns a matrix where each row correspond to a conversation by a speaker, a vector that holds the id of the
     speaker, and a vector that holds the id of the conversation
@@ -319,10 +338,7 @@ def to_vector_size(speakers, data_name):
 
     for conv_id, texts in speakers.items():
         features.append(texts)
-        if data_name == 'frida':
-            speaker_ids.append(conv_id[2:(len(conv_id) - 2)])
-        elif data_name == 'fisher':
-            speaker_ids.append(conv_id.split('_')[0])
+        speaker_ids.append(conv_id.split('_')[0])
         conv_ids.append(conv_id)
 
     return np.concatenate(features), np.array(speaker_ids), np.array(conv_ids)

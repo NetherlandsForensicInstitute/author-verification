@@ -10,6 +10,7 @@ import traceback
 import warnings
 import confidence
 import lir
+import json
 import scipy.spatial
 import scipy.stats
 import sklearn.model_selection
@@ -23,7 +24,6 @@ from functools import partial
 from lir import transformers
 from matplotlib import pyplot as plt
 from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
 from tqdm import tqdm
 from sklearn.metrics import roc_curve
 from pyllr.bayes_error_rate import Bayes_error_rate_analysis
@@ -237,7 +237,7 @@ class VectorDistance(sklearn.base.TransformerMixin):
         return np.stack([p0, 1 / p0], axis=1)
 
 
-def get_pairs(X, y, ratio_limit=3):
+def get_pairs(X, y, conv_ids, ratio_limit=3):
     """
     X = conversations - from the transcriptions
     y = labels (speaker id) - from the transcriptions
@@ -248,10 +248,14 @@ def get_pairs(X, y, ratio_limit=3):
     """
     # pair instances: same source and different source
     pairs_transformation = transformers.InstancePairing(ratio_limit=ratio_limit, seed=15)
-
     X_pairs, y_pairs = pairs_transformation.transform(X, y)
 
-    return X_pairs, y_pairs
+    pairing = pairs_transformation.pairing  # indices of pairs based on the transcriptions
+    conv_pairs = np.apply_along_axis(lambda a: np.sort(np.array([conv_ids[a[0]], conv_ids[a[1]]])), 1,
+                                     pairing)  # from indices to the actual pairs
+    conv_pairs = np.apply_along_axis(lambda a: str(a[0] + '+' + a[1]), 1, conv_pairs)
+
+    return X_pairs, y_pairs, conv_pairs
 
 
 def get_batch_simple(X, y, conv_ids, repeats, ratio_limit, preprocessor):
@@ -271,13 +275,13 @@ def get_batch_simple(X, y, conv_ids, repeats, ratio_limit, preprocessor):
 
         # max_n_of_pairs_per_class affects only the train set, the size of the test set depends on the number of
         # same source pairs
-        X_train, y_train = get_pairs(X_subset_for_train, y_subset_for_train, ratio_limit)
-        X_test, y_test = get_pairs(X_subset_for_test, y_subset_for_test, ratio_limit)
+        X_train, y_train, _ = get_pairs(X_subset_for_train, y_subset_for_train, conv_ids, ratio_limit)
+        X_test, y_test, pairs_test = get_pairs(X_subset_for_test, y_subset_for_test, conv_ids, ratio_limit)
 
-        yield X_train, y_train, X_test, y_test
+        yield X_train, y_train, X_test, y_test, pairs_test
 
 
-def evaluate_samesource(desc, data_path, data_name, ground_truth, n_frequent_words, ratio_limit,
+def evaluate_samesource(desc, data_path, data_name, ground_truth, filter_conv_ids, n_frequent_words, ratio_limit,
                         preprocessor, classifier, calibrator, extra_info=None, remove_filler_sounds=False,
                         expand_contractions=False, repeats=1, min_num_of_words=1):
     """
@@ -287,6 +291,7 @@ def evaluate_samesource(desc, data_path, data_name, ground_truth, n_frequent_wor
     :param data_path: path to transcript index file
     :param data_name
     :param ground_truth
+    :param filter_conv_ids
     :param n_frequent_words: int: number of most frequent words to be used in the analysis
     :param ratio_limit: ratio of different-source to same-source pairs to be considered
     :param preprocessor: a sklearn pipeline
@@ -306,9 +311,9 @@ def evaluate_samesource(desc, data_path, data_name, ground_truth, n_frequent_wor
 
     # load data
     ds = transcriptions.DataSource(data_path=data_path, data_name=data_name, ground_truth=ground_truth,
-                                   extra_info=extra_info, remove_filler_sounds=remove_filler_sounds,
-                                   expand_contractions=expand_contractions, n_frequent_words=n_frequent_words,
-                                   min_num_of_words=min_num_of_words)
+                                   filter_conv_ids=filter_conv_ids, extra_info=extra_info,
+                                   remove_filler_sounds=remove_filler_sounds,expand_contractions=expand_contractions,
+                                   n_frequent_words=n_frequent_words, min_num_of_words=min_num_of_words)
     X, y, conv_ids = ds.get()
 
     assert X.shape[0] > 0
@@ -322,12 +327,17 @@ def evaluate_samesource(desc, data_path, data_name, ground_truth, n_frequent_wor
 
     lrs_mfw = []
     y_all = []
+    results_to_save = collections.defaultdict(dict)
 
-    for X_train, y_train, X_test, y_test in tqdm(get_batch_simple(X, y, conv_ids, repeats, ratio_limit,
-                                                                  preprocessor)):
+    for count, (X_train, y_train, X_test, y_test, test_pairs) in (
+            tqdm(enumerate(get_batch_simple(X, y, conv_ids, repeats, ratio_limit, preprocessor)))):
+        results_to_save[count]['pairs'] = test_pairs.tolist()
+        results_to_save[count]['y'] = y_test.tolist()
 
         clf.fit(X_train, y_train)
+
         lrs_mfw.append(clf.predict_lr(X_test))
+        results_to_save[count]['lrs_mfw'] = lrs_mfw[count].tolist()
         y_all.append(y_test)
 
         n_same_train = int(np.sum(y_train))
@@ -339,11 +349,11 @@ def evaluate_samesource(desc, data_path, data_name, ground_truth, n_frequent_wor
         LOG.info(f'  counts by class: diff={n_diff}; same={n_same}')
 
     # calculate metrics and log them
-    mfw_res, stds, eers = calculate_metrics(lrs_mfw, y_all)
+    mfw_res, stds = calculate_metrics(lrs_mfw, y_all)
 
     LOG.info(f'  mfw only: {mfw_res._fields} = {list(np.round(mfw_res, 3))}')
 
-    return [mfw_res, stds, eers]
+    return [mfw_res, stds, results_to_save]
 
 
 def calculate_metrics(lrs, y):
@@ -378,7 +388,7 @@ def calculate_metrics(lrs, y):
     res = Metrics(eer_avg, pav_avg[3], pav_avg[2], pav_avg[1], pav_avg[0])
     stds = Metrics(eer_std, pav_std[3], pav_std[2], pav_std[1], pav_std[0])
 
-    return res, stds, eers
+    return res, stds
 
 
 def aggregate_results(out_dir, results):
@@ -389,13 +399,29 @@ def aggregate_results(out_dir, results):
     :param results: namedtuple (as return by the evaluate_samesource)
 
     '''
-    res_file = open(out_dir, 'w')
+
+    if not os.path.exists(os.path.join(out_dir[0], 'results')):
+        os.makedirs(os.path.join(out_dir[0], 'results'))
+
+    res_filepath = os.path.join(out_dir[0], 'results', out_dir[1] + '.txt')
+    res_file = open(res_filepath, 'w')
     for params, result in results:
         desc = ', '.join(f'{name}={value}' for name, value in params)
         print(f'mfw: {result[0]._fields} = {list(np.round(result[0], 3))}--{desc}')
         res_file.write(f'mfw_avg: {result[0]._fields} = {list(np.round(result[0], 3))}--{desc}\n'
                        f'mfw_std: {result[1]._fields} = {list(np.round(result[1], 3))}--{desc}\n')
     res_file.close()
+
+    if len(results) == 1:
+
+        if not os.path.exists(os.path.join(out_dir[0], 'scores')):
+            os.makedirs(os.path.join(out_dir[0], 'scores'))
+
+        scores_filepath = os.path.join(out_dir[0], 'scores', out_dir[1] + '.json')
+        with open(scores_filepath, 'w') as fp:
+            json.dump(results[0][1][2], fp)
+    else:
+        print('--------------no scores were saved----------------')
 
 
 def output_file_name(data_path, data_name, ground_truth, exclude_fillers, expand_contractions, n_freq_words,
@@ -416,13 +442,13 @@ def output_file_name(data_path, data_name, ground_truth, exclude_fillers, expand
     if expand_contractions:
         filename = filename + '_expand_contr'
 
-    filename = filename + '_' + str(n_freq_words) + '_mfw.txt'
+    filename = filename + '_' + str(n_freq_words) + '_mfw'
 
-    return os.path.join(output_directory, filename)
+    return filename
 
 
-def run(data_path, data_name, ground_truth, extra_file, exclude_fillers, expand_contractions, n_freq_words, resultdir):
-
+def run(data_path, data_name, ground_truth, filter_conv_ids, extra_file, exclude_fillers, expand_contractions,
+        n_freq_words, resultdir):
     # PREPROCESSORS for authorship verification
     prep_none = sklearn.pipeline.Pipeline([
         ('scale:none', None),
@@ -477,6 +503,7 @@ def run(data_path, data_name, ground_truth, extra_file, exclude_fillers, expand_
     exp.parameter('data_path', data_path)
     exp.parameter('data_name', data_name)
     exp.parameter('ground_truth', ground_truth)
+    exp.parameter('filter_conv_ids', filter_conv_ids)
     exp.parameter('extra_info', extra_file)
     exp.parameter('remove_filler_sounds', exclude_fillers)
     exp.parameter('expand_contractions', expand_contractions)
@@ -484,8 +511,8 @@ def run(data_path, data_name, ground_truth, extra_file, exclude_fillers, expand_
     exp.parameter('min_num_of_words', 20)
 
     exp.parameter('n_frequent_words', n_freq_words)
-    exp.addSearch('n_frequent_words', [args.n_freq_words-100, n_freq_words+100,
-                                       n_freq_words+200], include_default=False)
+    exp.addSearch('n_frequent_words', [args.n_freq_words - 100, n_freq_words + 100,
+                                       n_freq_words + 200], include_default=False)
 
     exp.parameter('ratio_limit', 3)
 
@@ -502,7 +529,7 @@ def run(data_path, data_name, ground_truth, extra_file, exclude_fillers, expand_
 
     try:
         exp.runDefaults()
-        # exp.runSearch('max_n_of_pairs_per_class')
+        # exp.runSearch('remove_filler_sounds')
         # exp.runFullGrid(['n_frequent_words', 'max_n_of_pairs_per_class'])
 
     except Exception as e:
@@ -523,6 +550,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_path', metavar='DIRNAME', default=config.data.path)
     parser.add_argument('--data_name', type=str, default=config.data.name)
     parser.add_argument('--ground_truth', default=config.data.ground_truth)
+    parser.add_argument('--filter_conv_ids', default=config.data.filter_conv_ids)
     parser.add_argument('--extra_file', default=config.data.extra_info)
     parser.add_argument('--exclude_fillers', default=config.data_process.exclude_fillers)
     parser.add_argument('--expand_contractions', default=config.data_process.expand_contractions)
@@ -536,5 +564,5 @@ if __name__ == '__main__':
     output_file = output_file_name(args.data_path, args.data_name, args.ground_truth, args.exclude_fillers,
                                    args.expand_contractions, args.n_freq_words, args.output_directory)
 
-    run(args.data_path, args.data_name, args.ground_truth, args.extra_file, args.exclude_fillers,
-        args.expand_contractions, args.n_freq_words, output_file)
+    run(args.data_path, args.data_name, args.ground_truth, args.filter_conv_ids, args.extra_file,
+        args.exclude_fillers, args.expand_contractions, args.n_freq_words, [args.output_directory, output_file])
