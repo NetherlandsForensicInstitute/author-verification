@@ -2,7 +2,7 @@
 #  path: frida/Transcripties  # data location
 #  name: frida  # data name
 #  ground_truth: True  # manual transcriptions (True) or asr output (False)
-#  filter_conv_ids: /mnt/matylda3/xsergie00/pycharm/PycharmProjects/startingwithwhisper/data/asr_transcriptions/frida_asr_transcriptions/frida_whisper_medium_2 # needed only if you want to excl ids based on their existence in different folder
+#  filter_conv_ids: /mnt/matylda3/qsergidou/pycharm/PycharmProjects/startingwithwhisper/data/asr_transcriptions/frida_asr_transcriptions/frida_whisper_medium_2 # needed only if you want to excl ids based on their existence in different folder
 #  extra_info:  # addition file to process data (for fisher)
 #
 #data_process:
@@ -14,7 +14,7 @@
 
 #--------------------------------------------------------
 #data:
-#  path: /mnt/matylda3/xsergie00/pycharm/PycharmProjects/startingwithwhisper/data/asr_transcriptions/frida_asr_transcriptions/frida_whisper_small  # data location
+#  path: /mnt/matylda3/qsergidou/pycharm/PycharmProjects/startingwithwhisper/data/asr_transcriptions/frida_asr_transcriptions/frida_whisper_small  # data location
 #  name: frida  # data name
 #  ground_truth: False  # manual transcriptions (True) or asr output (False)
 #  filter_conv_ids: frida/Transcripties

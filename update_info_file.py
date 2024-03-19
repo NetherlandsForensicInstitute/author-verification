@@ -59,7 +59,7 @@ meta['sx'] = np.where(meta.sx_temp.isnull(), meta.sx, np.where(meta.sx_unclear==
 meta['dl'] = np.where((meta.dl_temp.isnull()) & (meta.dl!='u'), meta.dl,
                       np.where((meta.dl_unclear==True) | (meta.dl=='u'), np.nan, meta.dl_temp))
 
-info_path = '/mnt/matylda3/xsergie00/pycharm/PycharmProjects/startingwithwhisper/data/audio/fisher/info.txt'
+info_path = '/mnt/matylda3/qsergidou/pycharm/PycharmProjects/startingwithwhisper/data/audio/fisher/info.txt'
 info_df = pd.read_csv(info_path, sep="\t", header=None, skiprows=1)
 info_df.columns = ['file_name', 'spk_id', 'transcriber_id']
 info_df.file_name = info_df.file_name.str.replace('-', '_')
