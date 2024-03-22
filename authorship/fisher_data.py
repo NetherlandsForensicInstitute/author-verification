@@ -45,9 +45,9 @@ class FisherDataSource:
         speakers_conv = filter_speakers_text(speakers_wordlist, self._wordlist, self._min_words_in_conv)
 
         # convert to X, y, conv_ids
-        X, y, conv_ids = to_vector_size(speakers_conv)
+        X, y, conv_ids, sx_dl = to_vector_size(speakers_conv)
 
-        return X, y, conv_ids
+        return X, y, conv_ids, sx_dl
 
     def __repr__(self):
         return f'data(freqwords={self._n_freqwords})'
@@ -117,6 +117,7 @@ def read_session(lines):
 
 
 def compile_data(index_path, info_path):
+
     basedir = os.path.dirname(index_path)
     speakers_conv = collections.defaultdict(list)  # create empty dictionary list
 
@@ -124,21 +125,28 @@ def compile_data(index_path, info_path):
     with open(info_path) as f:
         next(f)
         for line in f:
-            filename, spk_id, trans = line.split('\t', 2)
-            to_ids[filename.replace('-', '_')] = [spk_id.replace('FISHE', ''), trans.replace('\n', '')
-                .replace('/WordWave', '')]
+            # each line has the filename, id of speaker, transcriber (LDC or BBN), signal quality, phone-set type,
+            # phone-service type, sex of the speaker, whether the speaker is native english or not, and how many
+            # conversations the speaker had {for more details check update_info_file.py or folder fisher_metadata
+            filename, spk_id, trans, sig_grade, phset, phtyp, sx, dl, count = line.split('\t', 8)
+            to_ids[filename] = [spk_id, trans, sx, dl, count.replace('\n', '')]
 
     for filepath, digest in tqdm(list(fileio.load_hashtable(index_path).items()), desc='compiling data'):
 
         # there is some inconsistency with '-' and '_' between actual file names and in the info file
         path_str = os.path.basename(filepath).replace('.txt', '').replace('-', '_')
-        spk_conv_id = to_ids.get(path_str)[0] + '_in_' + path_str.replace('fe_03_', '').replace('_a', 'a'). \
-            replace('_b', 'b') + '_by_' + to_ids.get(path_str)[1]  # spkid_in_convids_by_transcriber
 
-        with fileio.sha256_open(os.path.join(basedir, filepath), digest, on_mismatch='warn') as f:
-            texts = read_session(f)
-            if len(texts) > 0:  # ignore 'empty' files
-                speakers_conv[spk_conv_id].extend(texts)
+        # ignore speakers with 1 recording only and speakers with no clear metadata (i.e., sex and native are missing)
+        if (to_ids.get(path_str)[4] == '1') | (to_ids.get(path_str)[2] == ''):
+            continue
+        else:
+            spk_conv_id = to_ids.get(path_str)[0] + '_' + path_str.replace('fe_03_', '').replace('_a', 'a'). \
+                replace('_b', 'b') + '_' + to_ids.get(path_str)[1] + '_' + to_ids.get(path_str)[2] + to_ids.get(path_str)[3] # spkid_convids_transcriber_sexnative
+
+            with fileio.sha256_open(os.path.join(basedir, filepath), digest, on_mismatch='warn') as f:
+                texts = read_session(f)
+                if len(texts) > 0:  # ignore 'empty' files if any
+                    speakers_conv[spk_conv_id].extend(texts)
 
     return speakers_conv
 
@@ -155,58 +163,44 @@ def get_frequent_words(speakers, n):
     :param speakers: dataset of speakers with the words they used
     :param n: int how many most frequent words will the output contain
     """
-    # freq_bbn = collections.defaultdict(int)
-    # freq_ldc = collections.defaultdict(int)
     freq = collections.defaultdict(int)
     for sp, sp_words in speakers.items():
         for word in sp_words:
             if not re.compile("[a-z].*-$").match(word):  # exclude incomplete words
                 freq[word] += 1
-                # if bool(re.search('BBN', sp)):
-                #     freq_bbn[word] += 1
-                # else:
-                #     freq_ldc[word] += 1
             else:
                 continue
 
-    # freq_bbn = sorted(freq_bbn.items(), key=lambda x: x[1], reverse=True)
-    # freq_ldc = sorted(freq_ldc.items(), key=lambda x: x[1], reverse=True)
     freq = sorted(freq.items(), key=lambda x: x[1], reverse=True)
 
-    # word_bbn = [i[0] for i in freq_bbn[:n]]
-    # mfw = [item for item in freq_ldc[:n] if item[0] in word_bbn]
-
-    # return freq_ldc[:n]
-    # return mfw
     return freq[:n]
 
 
 def filter_speakers_text(speakerdict, wordlist, min_words_in_conv):
     """
     it returns dictionary, each key is a conversation and its values are the relative counts of the most freq words
-    if the speaker appears once or they have less words than min_words_in_conv then they are excluded from the analysis
+    if the speaker has fewer words than min_words_in_conv then they are excluded from the analysis
 
     :param speakerdict: dict of all words used per speaker
     :param wordlist: the n most freq words in corpus
     """
-
     f = CreateFeatureVector(wordlist)
 
-    # keep speakers with 2 or more conversations
-    spk_ids_all = [k.split('_')[0] for k in speakerdict.keys()]  # keep only speaker id
-    # spk_ids_all = [k.split('_')[0] for k in speakerdict.keys() if 'BBN' in k]
-    spk_with_occurrences = [v for v in np.unique(spk_ids_all) if spk_ids_all.count(v) > 1]
-
     filtered = {}
+    conv_lens = {}
     for label, texts in speakerdict.items():
         LOG.debug('filter in subset {}'.format(label))
 
         n_words = len(texts)
-        if label.split('_')[0] not in spk_with_occurrences or n_words < min_words_in_conv:
+        conv_lens[label] = n_words
+        if n_words < min_words_in_conv:
             continue
         else:
             texts = list(f(texts))
             filtered[label] = [i / n_words for i in texts]
+
+    with open('fisher/predictions/conversation_length.json', 'w') as fp:
+        json.dump(conv_lens, fp)
 
     return filtered
 
@@ -219,13 +213,15 @@ def to_vector_size(speakers):
     """
     speaker_ids = []
     conversation_ids = []
+    sx_dl = []
     features = []
     for label, texts in speakers.items():
         speaker_ids.append(label.split('_')[0])
-        conversation_ids.append(label.split('_')[2])
+        conversation_ids.append(label.split('_')[1])
+        sx_dl.append(label.split('_')[3])
         features.append(texts)
 
-    return np.concatenate(features), np.array(speaker_ids), np.array(conversation_ids)
+    return np.concatenate(features), np.array(speaker_ids), np.array(conversation_ids), np.array(sx_dl)
 
 # import confidence
 #

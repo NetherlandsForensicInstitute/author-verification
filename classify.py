@@ -25,6 +25,7 @@ import sklearn.pipeline
 import sklearn.preprocessing
 from tqdm import tqdm
 from sklearn.metrics import roc_curve
+from sklearn.utils import shuffle
 
 from authorship import sv_fisher_data
 from authorship import fisher_data
@@ -250,34 +251,82 @@ def get_pairs(X, y, conv_ids, row_ids, col_ids, sv_scores, sample_size):
     vs_scores_subset = np.apply_along_axis(lambda a: sv_scores[np.where(row_ids == a[0]),
                                                                np.where(col_ids == a[1])].item(), 1, conv_pairs)
 
-    return X_pairs, vs_scores_subset, y_pairs
+    pairs = np.apply_along_axis(lambda a: str(a[0] + '|' + a[1]), 1, conv_pairs)
+
+    return X_pairs, vs_scores_subset, y_pairs, pairs
 
 
-def get_batch_simple(X, y, conv_ids, row_ids, col_ids, sv_scores, repeats, max_n_of_pairs_per_class, preprocessor):
+def get_batch_simple(X, y, conv_ids, sx_dl, row_ids, col_ids, sv_scores, repeats, max_n_of_pairs_per_class,
+                     preprocessor):
+
+    # y1 = y[(sx_dl=='mo') | (sx_dl=='ma')]
+    # sx_dl1 = sx_dl[(sx_dl=='mo') | (sx_dl=='ma')]
+    # y1 = y[sx_dl=='ma']
+    # sx_dl1 = sx_dl[sx_dl=='ma']
+    # authors, indices = np.unique(y1, return_index=True)
+    # sx_dl_uni = sx_dl1[indices]
+
+    authors, indices = np.unique(y, return_index=True)
+    sx_dl_uni = sx_dl[indices]
+
     for i in range(repeats):
-        authors = np.unique(y)
-        authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
+
+        authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i,
+                                                                               stratify=sx_dl_uni)
+        # authors_train, authors_test = sklearn.model_selection.train_test_split(authors, test_size=.1, random_state=i)
 
         # prep data for train
         X_subset_for_train = X[np.isin(y, authors_train), :]
         X_subset_for_train = preprocessor.fit_transform(X_subset_for_train)
         y_subset_for_train = y[np.isin(y, authors_train)]
         conv_ids_subset_for_train = conv_ids[np.isin(y, authors_train)]
-
+        sx_dl_subset_for_train = sx_dl[np.isin(y, authors_train)]
+        np.unique(sx_dl_subset_for_train, return_counts=True)
         # prep data for test
         X_subset_for_test = X[np.isin(y, authors_test), :]
         X_subset_for_test = preprocessor.transform(X_subset_for_test)
         y_subset_for_test = y[np.isin(y, authors_test)]
         conv_ids_subset_for_test = conv_ids[np.isin(y, authors_test)]
+        sx_dl_subset_for_test = sx_dl[np.isin(y, authors_test)]
+
+        # groups, counts = np.unique(sx_dl_subset_for_train, return_counts=True)
+        # portions = counts/len(y_subset_for_train)
 
         # max_n_of_pairs_per_class affects only the train set, the size of the test set is fixed (for fair comparisons
         # of runs with different max_n_of_pairs_per_class).
-        X_train, X_sv_train, y_train = get_pairs(X_subset_for_train, y_subset_for_train, conv_ids_subset_for_train,
-                                                 row_ids, col_ids, sv_scores, max_n_of_pairs_per_class)
-        X_test, X_sv_test, y_test = get_pairs(X_subset_for_test, y_subset_for_test, conv_ids_subset_for_test,
-                                              row_ids, col_ids, sv_scores, 4000)
+        # for j, gr in enumerate(['fa', 'fo']):
+        #     train, sv_train, sc_train = get_pairs(X_subset_for_train[sx_dl_subset_for_train == gr],
+        #                                           y_subset_for_train[sx_dl_subset_for_train == gr],
+        #                                           conv_ids_subset_for_train[sx_dl_subset_for_train == gr],
+        #                                           row_ids, col_ids, sv_scores,
+        #                                           int(max_n_of_pairs_per_class * portions[groups == gr]))
+        #     test, sv_test, sc_test = get_pairs(X_subset_for_test[sx_dl_subset_for_test == gr],
+        #                                        y_subset_for_test[sx_dl_subset_for_test == gr],
+        #                                        conv_ids_subset_for_test[sx_dl_subset_for_test == gr],
+        #                                        row_ids, col_ids, sv_scores,
+        #                                        int(4000 * portions[groups == gr][0]))
+        #     if j == 0:
+        #         X_train, X_sv_train, y_train = train, sv_train, sc_train
+        #         X_test, X_sv_test, y_test = test, sv_test, sc_test
+        #     else:
+        #         X_train = np.vstack((X_train, train))
+        #         X_sv_train = np.hstack((X_sv_train, sv_train))
+        #         y_train = np.hstack((y_train, sc_train))
+        #
+        #         X_test = np.vstack((X_test, test))
+        #         X_sv_test = np.hstack((X_sv_test, sv_test))
+        #         y_test = np.hstack((y_test, sc_test))
 
-        yield X_train, X_sv_train, y_train, X_test, X_sv_test, y_test
+        # X_train, X_sv_train, y_train = shuffle(X_train, X_sv_train, y_train, random_state=i)
+        # X_test, X_sv_test, y_test = shuffle(X_test, X_sv_test, y_test, random_state=i)
+
+        X_train, X_sv_train, y_train, pairs_train = get_pairs(X_subset_for_train, y_subset_for_train,
+                                                              conv_ids_subset_for_train, row_ids, col_ids, sv_scores,
+                                                              max_n_of_pairs_per_class)
+        X_test, X_sv_test, y_test, pairs_test = get_pairs(X_subset_for_test, y_subset_for_test,
+                                                          conv_ids_subset_for_test, row_ids, col_ids, sv_scores, 4000)
+
+        yield X_train, X_sv_train, y_train, X_test, X_sv_test, y_test, pairs_test
 
 
 def evaluate_samesource(desc, dataset, sv_scores, n_frequent_words, max_n_of_pairs_per_class, preprocessor, classifier,
@@ -312,13 +361,14 @@ def evaluate_samesource(desc, dataset, sv_scores, n_frequent_words, max_n_of_pai
     if 'asr_output' in dataset:
         ds = asr_fisher_data.ASRFisherDataSource(dataset, extra_file, n_frequent_words=n_frequent_words,
                                                  min_words_in_conv=min_words_in_conv)
+        X, y, conv_ids = ds.get()
     elif 'fisher' in dataset:
         ds = fisher_data.FisherDataSource(dataset, extra_file, n_frequent_words=n_frequent_words,
                                           min_words_in_conv=min_words_in_conv)
+        X, y, conv_ids, sx_dl = ds.get()
     else:
         raise ValueError('illegal input for dataset')
 
-    X, y, conv_ids = ds.get()
     assert X.shape[0] > 0
 
     sv_ds = sv_fisher_data.SVscoreFisherDataSource(sv_scores)
@@ -338,10 +388,11 @@ def evaluate_samesource(desc, dataset, sv_scores, n_frequent_words, max_n_of_pai
     lrs_features = []
     lrs_biva = []
     y_all = []
+    results_to_save = collections.defaultdict(dict)
 
-    for X_train, X_sv_train, y_train, X_test, X_sv_test, y_test in tqdm(
-            get_batch_simple(X, y, conv_ids, row_ids, col_ids, sv_scores, repeats, max_n_of_pairs_per_class,
-                             preprocessor)):
+    for count, (X_train, X_sv_train, y_train, X_test, X_sv_test, y_test, pairs_test) in tqdm(enumerate(
+            get_batch_simple(X, y, conv_ids, sx_dl, row_ids, col_ids, sv_scores, repeats, max_n_of_pairs_per_class,
+                             preprocessor))):
 
         # the following ways are considered for combining the mfw method with the voc output
         # 1. assume that mfw and acoustic LR are independent and multiply them (m1)
@@ -359,6 +410,9 @@ def evaluate_samesource(desc, dataset, sv_scores, n_frequent_words, max_n_of_pai
         #
         # LOG.info(f'  counts by class (train): diff={n_diff_train}; same={n_same_train}')
         # LOG.info(f'  counts by class (test): diff={n_diff_test}; same={n_same_test}')
+
+        results_to_save[count]['pairs'] = pairs_test.tolist()
+        results_to_save[count]['y'] = y_test.tolist()
 
         # calculate LRs for acoustic output (for m1)
         sv_cal.fit(X=X_sv_train, y=y_train)
@@ -427,6 +481,16 @@ def evaluate_samesource(desc, dataset, sv_scores, n_frequent_words, max_n_of_pai
 
         biva_cal.fit(X=np.log10(uncal_lr_train), y=y_train)
         lrs_biva.append(biva_cal.transform(np.log10(uncal_lr_test)))
+
+        results_to_save[count]['lrs_mfw'] = lrs_mfw[count].tolist()
+        results_to_save[count]['lrs_sv'] = lrs_sv[count].tolist()
+        results_to_save[count]['lrs_comb_a'] = lrs_comb_a[count].tolist()
+        results_to_save[count]['lrs_comb_b'] = lrs_comb_b[count].tolist()
+        results_to_save[count]['lrs_feat'] = lrs_features[count].tolist()
+        results_to_save[count]['lrs_biva'] = lrs_biva[count].tolist()
+
+        with open('fisher/predictions/predictions_per_repeat.json', 'w') as fp:
+            json.dump(results_to_save, fp)
 
     # calculate metrics for each method and log them
     mfw_res = calculate_metrics(lrs_mfw, y_all)
@@ -563,7 +627,7 @@ def run(dataset, sv_scores, resultdir, extra_data_file=None):
     exp.addSearch('classifier', [('bray_logit', br_logit), ('man_logit', man_logit)], include_default=False)
 
     exp.parameter('calibrator', lir.ELUBbounder(lir.LogitCalibrator()))
-    exp.parameter('repeats', 10)
+    exp.parameter('repeats', 100)
 
     try:
         exp.runDefaults()
